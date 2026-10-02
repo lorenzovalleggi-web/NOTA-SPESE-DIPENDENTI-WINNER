@@ -426,60 +426,94 @@ st.session_state.rifornimenti_dkv = df_rifornimenti.copy()
 
 st.divider()
 
-# --- GESTIONE ALLEGATI / SCONTRINI ---
-st.subheader("🧾 Gestione Allegati / Scontrini")
-st.info("Le immagini sono visualizzate in formato compatto. Usa **🔍 Ingrandisci** per il popup a schermo intero o **📥 Scarica / Apri** per visualizzarle con l'applicazione del computer.")
+# --- GESTIONE ALLEGATI / SCONTRINI (AUTOSTRADA, VITTO, VARIE) ---
+st.subheader("🧾 Gestione Allegati / Scontrini (Autostrada, Vitto, Varie)")
+st.info("Seleziona la tipologia di spesa e carica le foto o i file PDF dei relativi scontrini per visualizzarne l'anteprima.")
 
-nuovi_file = st.file_uploader(
-    "📎 Aggiungi Foto/Scontrini (JPG, PNG, PDF)",
-    type=["jpg", "jpeg", "png", "pdf"],
-    accept_multiple_files=True,
-    key="nuovi_scontrini_uploader"
-)
+col_upload1, col_upload2 = st.columns([1, 2])
+
+with col_upload1:
+    tipo_spesa_sel = st.selectbox(
+        "Tipo Spesa Scontrino",
+        options=["Autostrada", "Vitto", "Varie"],
+        key="tipo_spesa_uploader"
+    )
+
+with col_upload2:
+    nuovi_file = st.file_uploader(
+        f"📎 Carica Scontrini ({tipo_spesa_sel}) - JPG, PNG, PDF",
+        type=["jpg", "jpeg", "png", "pdf"],
+        accept_multiple_files=True,
+        key="nuovi_scontrini_uploader"
+    )
 
 if nuovi_file:
     for f in nuovi_file:
         if f.name not in [x["name"] for x in st.session_state.allegati_dkv_list]:
-            st.session_state.allegati_dkv_list.append({"name": f.name, "file": f})
+            st.session_state.allegati_dkv_list.append({
+                "name": f.name,
+                "file": f,
+                "categoria": tipo_spesa_sel
+            })
 
+# Visualizzazione Filtri / Schede per Categoria
 if st.session_state.allegati_dkv_list:
-    st.write(f"**Scontrini allegati:** {len(st.session_state.allegati_dkv_list)}")
-    cols_foto = st.columns(4)
+    st.write(f"**Totale Scontrini Allegati:** {len(st.session_state.allegati_dkv_list)}")
+    
+    cat_filter = st.radio(
+        "Filtra Allegati per Categoria:",
+        options=["Tutti", "Autostrada", "Vitto", "Varie"],
+        horizontal=True,
+        key="filtro_allegati"
+    )
+    
+    elementi_filtrati = [
+        (idx, item) for idx, item in enumerate(st.session_state.allegati_dkv_list)
+        if cat_filter == "Tutti" or item.get("categoria", "Varie") == cat_filter
+    ]
+    
+    if elementi_filtrati:
+        cols_foto = st.columns(4)
+        for grid_idx, (real_idx, item) in enumerate(elementi_filtrati):
+            col_curr = cols_foto[grid_idx % 4]
+            with col_curr:
+                file_obj = item["file"]
+                file_name = item["name"]
+                cat_curr = item.get("categoria", "Varie")
+                
+                with st.container(border=True):
+                    # Badge/Etichetta della categoria
+                    st.markdown(f"🏷️ **{cat_curr}**")
+                    
+                    if file_obj.type.startswith("image"):
+                        img = Image.open(file_obj)
+                        st.image(img, use_container_width=True)
+                    else:
+                        st.markdown("📄 **Allegato PDF**")
 
-    for idx, item in enumerate(st.session_state.allegati_dkv_list):
-        col_curr = cols_foto[idx % 4]
-        with col_curr:
-            file_obj = item["file"]
-            file_name = item["name"]
-            
-            with st.container(border=True):
-                if file_obj.type.startswith("image"):
-                    img = Image.open(file_obj)
-                    st.image(img, use_container_width=True)
-                else:
-                    st.markdown("📄 **Allegato PDF**")
-
-                st.caption(file_name)
-                
-                if st.button("🔍 Ingrandisci", key=f"zoom_{idx}_{file_name}", use_container_width=True):
-                    mostra_scontrino_modal(file_obj, file_name)
-                
-                st.download_button(
-                    label="📥 Scarica / Apri",
-                    data=file_obj.getvalue(),
-                    file_name=file_name,
-                    mime=file_obj.type,
-                    key=f"dl_{idx}_{file_name}",
-                    use_container_width=True
-                )
-                
-                st.button(
-                    "🗑 Rimuovi", 
-                    key=f"del_{idx}_{file_name}", 
-                    on_click=rimuovi_allegato, 
-                    args=(idx,), 
-                    use_container_width=True
-                )
+                    st.caption(file_name)
+                    
+                    if st.button("🔍 Ingrandisci", key=f"zoom_{real_idx}_{file_name}", use_container_width=True):
+                        mostra_scontrino_modal(file_obj, file_name)
+                    
+                    st.download_button(
+                        label="📥 Scarica / Apri",
+                        data=file_obj.getvalue(),
+                        file_name=file_name,
+                        mime=file_obj.type,
+                        key=f"dl_{real_idx}_{file_name}",
+                        use_container_width=True
+                    )
+                    
+                    st.button(
+                        "🗑 Rimuovi", 
+                        key=f"del_{real_idx}_{file_name}", 
+                        on_click=rimuovi_allegato, 
+                        args=(real_idx,), 
+                        use_container_width=True
+                    )
+    else:
+        st.info(f"Nessun allegato presente per la categoria **{cat_filter}**.")
 
 st.divider()
 
