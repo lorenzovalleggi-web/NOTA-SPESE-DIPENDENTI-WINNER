@@ -155,18 +155,51 @@ if not df_finale.empty:
     st.divider()
     st.subheader("📊 RIEPILOGO TOTALE PAGAMENTO (PAGINA 2)")
 
-    c1, c2 = st.columns(2)
-
-    with c1:
-        st.write("### Totali Rimborsi")
+    # --- TOTALI RIMBORSI ---
+    st.write("### Totali Rimborsi")
+    c_tot1, c_tot2, c_tot3 = st.columns(3)
+    with c_tot1:
         st.metric("TOTALE Rimb. Chilometrico", f"€ {totale_rimborso_chilometrico:.2f}")
+    with c_tot2:
         st.metric("TOTALE Altri Rimborsi", f"€ {totale_altri_rimborsi:.2f}")
-        st.subheader(f"TOTALE GENERALE PAGATO: € {totale_generale_pagato:.2f}")
+    with c_tot3:
+        st.metric("TOTALE GENERALE PAGATO", f"€ {totale_generale_pagato:.2f}")
 
-    with c2:
-        st.write("### Autorizzazioni e Firme")
-        st.text_input("Il Dichiarante", f"{nome.upper()} {cognome.upper()}")
-        st.caption("Timbro e Firma (L'Amministratore) - Per Autorizzazione Incarico")
+    st.divider()
+
+    # --- SEZIONE AUTORIZZAZIONI E FIRME (DUE SEZIONI SEPARATE ADIACENTI) ---
+    st.subheader("✍️ Autorizzazioni e Firme")
+    col_dichiarante, col_amministratore = st.columns(2)
+
+    with col_dichiarante:
+        st.markdown("#### 1. Il Dichiarante")
+        st.text_input("Nome e Cognome Dichiarante", f"{nome.upper()} {cognome.upper()}", key="nome_dichiarante")
+        
+        firma_dichiarante = st.file_uploader(
+            "📎 Allegato Firma Dichiarante (PNG/JPG/PDF)", 
+            type=["png", "jpg", "jpeg", "pdf"],
+            key="firma_dichiarante_file"
+        )
+        if firma_dichiarante is not None:
+            if firma_dichiarante.type.startswith("image"):
+                st.image(Image.open(firma_dichiarante), caption="Firma Dichiarante Allegata", width=200)
+            else:
+                st.success(f"File allegato: {firma_dichiarante.name}")
+
+    with col_amministratore:
+        st.markdown("#### 2. L'Amministratore")
+        st.caption("Per Autorizzazione Incarico")
+        
+        timbro_firma_admin = st.file_uploader(
+            "📎 Allegato Timbro e Firma Amministratore (PNG/JPG/PDF)", 
+            type=["png", "jpg", "jpeg", "pdf"],
+            key="timbro_admin_file"
+        )
+        if timbro_firma_admin is not None:
+            if timbro_firma_admin.type.startswith("image"):
+                st.image(Image.open(timbro_firma_admin), caption="Timbro e Firma Amministratore Allegati", width=200)
+            else:
+                st.success(f"File allegato: {timbro_firma_admin.name}")
 
     # --- ESPORTAZIONE ---
     st.divider()
