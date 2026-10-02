@@ -54,62 +54,69 @@ coordinatori = [
     "Coordinatore Stella"
 ]
 
-# --- TABELLA INIZIALE ---
-if "dati_spese" not in st.session_state:
-    st.session_state.dati_spese = pd.DataFrame([
+# Reset della sessione se la struttura delle colonne e obsoleta
+def crea_df_iniziale():
+    return pd.DataFrame([
         {
             "Data": date.today(),
-            "Comune / Note": "Come da Planning Allegato",
+            "Comune": "Come da Planning Allegato",
             "Coordinatore di Zona": "",
-            "Km Percorsi (0,25 €)": 143,
-            "Importi Autostradali": 7.40,
-            "Vitto": 0.0,
-            "Varie": 0.0,
-            "Km Percorsi (0,20 €)": 0,
-            "Importi Autostradali B": 0.0,
-            "Vitto B": 0.0,
-            "Varie B": 0.0
+            "Km_A": 143,
+            "Autostrade_A": 7.40,
+            "Vitto_A": 0.0,
+            "Varie_A": 0.0,
+            "Km_B": 0,
+            "Autostrade_B": 0.0,
+            "Vitto_B": 0.0,
+            "Varie_B": 0.0
         }
     ])
+
+if "dati_spese_v2" not in st.session_state:
+    st.session_state.dati_spese_v2 = crea_df_iniziale()
 
 st.subheader("📋 Inserimento Voci di Spesa")
 
 # --- TABELLA EDITABILE ---
 df_edit = st.data_editor(
-    st.session_state.dati_spese,
+    st.session_state.dati_spese_v2,
     num_rows="dynamic",
     use_container_width=True,
     column_config={
         "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
-        "Comune / Note": st.column_config.TextColumn("Comune / Planning"),
+        "Comune": st.column_config.TextColumn("Comune / Note"),
         "Coordinatore di Zona": st.column_config.SelectboxColumn("Coordinatore di Zona", options=coordinatori),
-        "Km Percorsi (0,25 €)": st.column_config.NumberColumn("Km (0,25 €)", min_value=0, step=1),
-        "Importi Autostradali": st.column_config.NumberColumn("Autostrade (€)", min_value=0.0, format="%.2f €"),
-        "Vitto": st.column_config.NumberColumn("Vitto (€)", min_value=0.0, format="%.2f €"),
-        "Varie": st.column_config.NumberColumn("Varie (€)", min_value=0.0, format="%.2f €"),
-        "Km Percorsi (0,20 €)": st.column_config.NumberColumn("Km (0,20 €)", min_value=0.0, step=1),
-        "Importi Autostradali B": st.column_config.NumberColumn("Autostrade B (€)", min_value=0.0, format="%.2f €"),
-        "Vitto B": st.column_config.NumberColumn("Vitto B (€)", min_value=0.0, format="%.2f €"),
-        "Varie B": st.column_config.NumberColumn("Varie B (€)", min_value=0.0, format="%.2f €"),
+        "Km_A": st.column_config.NumberColumn("Km Percorsi (0,25 €)", min_value=0, step=1),
+        "Autostrade_A": st.column_config.NumberColumn("Autostrade A (€)", min_value=0.0, format="%.2f €"),
+        "Vitto_A": st.column_config.NumberColumn("Vitto A (€)", min_value=0.0, format="%.2f €"),
+        "Varie_A": st.column_config.NumberColumn("Varie A (€)", min_value=0.0, format="%.2f €"),
+        "Km_B": st.column_config.NumberColumn("Km Percorsi (0,20 €)", min_value=0, step=1),
+        "Autostrade_B": st.column_config.NumberColumn("Autostrade B (€)", min_value=0.0, format="%.2f €"),
+        "Vitto_B": st.column_config.NumberColumn("Vitto B (€)", min_value=0.0, format="%.2f €"),
+        "Varie_B": st.column_config.NumberColumn("Varie B (€)", min_value=0.0, format="%.2f €"),
     }
 )
 
-# --- CALCOLI AUTOMATICI (RIEPILOGO PAGINA 2) ---
+# --- CALCOLI AUTOMATICI (PAGINA 2 RIEPILOGO) ---
 df_finale = df_edit.copy()
 
 if not df_finale.empty:
-    # Calcolo rimborsi chilometrici
-    tot_rimborso_km_a = df_finale["Km Percorsi (0,25 €)"].fillna(0).sum() * costo_km_a
-    tot_rimborso_km_b = df_finale["Km Percorsi (0,20 €)"].fillna(0).sum() * costo_km_b
+    # Estraggo i valori con fallback a 0
+    km_a_sum = pd.to_numeric(df_finale.get("Km_A", 0), errors='coerce').fillna(0).sum()
+    km_b_sum = pd.to_numeric(df_finale.get("Km_B", 0), errors='coerce').fillna(0).sum()
+    
+    tot_rimborso_km_a = km_a_sum * costo_km_a
+    tot_rimborso_km_b = km_b_sum * costo_km_b
     totale_rimborso_chilometrico = tot_rimborso_km_a + tot_rimborso_km_b
 
-    # Calcolo altri rimborsi
-    tot_autostrade = df_finale["Importi Autostradali"].fillna(0).sum() + df_finale["Importi Autostradali B"].fillna(0).sum()
-    tot_vitto = df_finale["Vitto"].fillna(0).sum() + df_finale["Vitto B"].fillna(0).sum()
-    tot_varie = df_finale["Varie"].fillna(0).sum() + df_finale["Varie B"].fillna(0).sum()
-    totale_altri_rimborsi = tot_autostrade + tot_vitto + tot_varie
+    auto_a = pd.to_numeric(df_finale.get("Autostrade_A", 0), errors='coerce').fillna(0).sum()
+    auto_b = pd.to_numeric(df_finale.get("Autostrade_B", 0), errors='coerce').fillna(0).sum()
+    vitto_a = pd.to_numeric(df_finale.get("Vitto_A", 0), errors='coerce').fillna(0).sum()
+    vitto_b = pd.to_numeric(df_finale.get("Vitto_B", 0), errors='coerce').fillna(0).sum()
+    varie_a = pd.to_numeric(df_finale.get("Varie_A", 0), errors='coerce').fillna(0).sum()
+    varie_b = pd.to_numeric(df_finale.get("Varie_B", 0), errors='coerce').fillna(0).sum()
 
-    # Totale generale
+    totale_altri_rimborsi = auto_a + auto_b + vitto_a + vitto_b + varie_a + varie_b
     totale_generale_pagato = totale_rimborso_chilometrico + totale_altri_rimborsi
 
     st.divider()
@@ -134,6 +141,6 @@ if not df_finale.empty:
     st.download_button(
         label="📥 Scarica Nota Spese Completata (CSV)",
         data=csv,
-        file_name=f"Nota_Spese_Pag2_{cognome}_{date.today().strftime('%B%Y')}.csv",
+        file_name=f"Nota_Spese_Pag2_{cognome}.csv",
         mime="text/csv"
     )
