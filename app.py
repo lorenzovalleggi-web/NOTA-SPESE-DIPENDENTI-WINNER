@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import date
 from PIL import Image
 import os
+import json
 
 # Configurazione della pagina
 st.set_page_config(page_title="Nota Spese - Winner", layout="wide")
@@ -29,9 +30,11 @@ st.divider()
 # --- ANAGRAFICA DIPENDENTE ---
 col1, col2, col3, col4 = st.columns(4)
 with col1:
-    nome = st.text_input("Nome", "LORENZO")
+    nome = st.text_input("Nome", st.session_state.get("nome_user", "LORENZO"), key="nome_input")
+    st.session_state["nome_user"] = nome
 with col2:
-    cognome = st.text_input("Cognome", "VALLEGGI")
+    cognome = st.text_input("Cognome", st.session_state.get("cognome_user", "VALLEGGI"), key="cognome_input")
+    st.session_state["cognome_user"] = cognome
 with col3:
     costo_km_a = st.number_input("Rimborsabilità Km Cat. A (€)", value=0.25, disabled=True)
 with col4:
@@ -54,7 +57,7 @@ coordinatori = [
     "Coordinatore Stella"
 ]
 
-# Reset della sessione se la struttura delle colonne e obsoleta
+# Inizializzazione della tabella in session_state
 def crea_df_iniziale():
     return pd.DataFrame([
         {
@@ -75,13 +78,30 @@ def crea_df_iniziale():
 if "dati_spese_v2" not in st.session_state:
     st.session_state.dati_spese_v2 = crea_df_iniziale()
 
+# --- CARICAMENTO BOZZA SALVATA ---
+with st.expander("📁 Salva o Ripristina una Bozza di Lavoro"):
+    col_up, col_down = st.columns(2)
+    with col_up:
+        uploaded_file = st.file_uploader("Carica file bozza (.json o .csv)", type=["json", "csv"])
+        if uploaded_file is not None:
+            try:
+                if uploaded_file.name.endswith(".json"):
+                    data_loaded = json.load(uploaded_file)
+                    st.session_state.dati_spese_v2 = pd.DataFrame(data_loaded)
+                else:
+                    st.session_state.dati_spese_v2 = pd.read_csv(uploaded_file)
+                st.success("Bozza caricata con successo!")
+            except Exception as e:
+                st.error("Errore nel caricamento del file.")
+
 st.subheader("📋 Inserimento Voci di Spesa")
 
-# --- TABELLA EDITABILE ---
+# --- TABELLA EDITABILE CON SALVATAGGIO AUTOMATICO LO STATO ---
 df_edit = st.data_editor(
     st.session_state.dati_spese_v2,
     num_rows="dynamic",
     use_container_width=True,
+    key="editor_spese",
     column_config={
         "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
         "Comune": st.column_config.TextColumn("Comune / Note"),
@@ -97,11 +117,13 @@ df_edit = st.data_editor(
     }
 )
 
+# Manteniamo la tabella aggiornata nella sessione ad ogni modifica
+st.session_state.dati_spese_v2 = df_edit.copy()
+
 # --- CALCOLI AUTOMATICI (PAGINA 2 RIEPILOGO) ---
 df_finale = df_edit.copy()
 
 if not df_finale.empty:
-    # Estraggo i valori con fallback a 0
     km_a_sum = pd.to_numeric(df_finale.get("Km_A", 0), errors='coerce').fillna(0).sum()
     km_b_sum = pd.to_numeric(df_finale.get("Km_B", 0), errors='coerce').fillna(0).sum()
     
@@ -135,12 +157,24 @@ if not df_finale.empty:
         st.text_input("Il Dichiarante", f"{nome.upper()} {cognome.upper()}")
         st.caption("Timbro e Firma (L'Amministratore) - Per Autorizzazione Incarico")
 
-    # --- ESPORTAZIONE CSV ---
+    # --- ESPORTAZIONE E SALVATAGGIO ---
     st.divider()
-    csv = df_finale.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="📥 Scarica Nota Spese Completata (CSV)",
-        data=csv,
-        file_name=f"Nota_Spese_Pag2_{cognome}.csv",
-        mime="text/csv"
-    )
+    btn_col1, btn_col2 = st.columns(2)
+    
+    with btn_col1:
+        csv = df_finale.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Scarica Nota Spese Finale (CSV)",
+            data=csv,
+            file_name=f"Nota_Spese_Pag2_{cognome}.csv",
+            mime="text/csv"
+        )
+    
+    with btn_col2:
+        json_data = df_finale.to_json(orient="records", date_format="iso")
+        st.download_button(
+            label="💾 Salva Bozza di Lavoro (.json)",
+            data=json_data,
+            file_name=f"Bozza_Nota_Spese_{cognome}.json",
+            mime="application/json"
+        )
