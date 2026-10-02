@@ -5,7 +5,7 @@ from PIL import Image
 import os
 import json
 
-# 1. Configurazione della pagina (Deve essere SEMPRE la prima chiamata Streamlit)
+# 1. Configurazione della pagina
 st.set_page_config(page_title="Nota Spese - Winner", layout="wide")
 
 PATH_BOZZA_LOCALE = "bozza_automatica.json"
@@ -16,7 +16,8 @@ def salva_bozza_automatica():
         "nome": st.session_state.get("nome_user", "LORENZO"),
         "cognome": st.session_state.get("cognome_user", "VALLEGGI"),
         "spese": st.session_state.dati_spese_v2.to_dict(orient="records") if "dati_spese_v2" in st.session_state else [],
-        "rifornimenti": st.session_state.rifornimenti_dkv.to_dict(orient="records") if "rifornimenti_dkv" in st.session_state else []
+        "rifornimenti": st.session_state.rifornimenti_dkv.to_dict(orient="records") if "rifornimenti_dkv" in st.session_state else [],
+        "telepass": st.session_state.dati_telepass.to_dict(orient="records") if "dati_telepass" in st.session_state else []
     }
     try:
         with open(PATH_BOZZA_LOCALE, "w", encoding="utf-8") as f:
@@ -43,13 +44,17 @@ def carica_bozza_automatica():
                     if "Data" in df_rif.columns:
                         df_rif["Data"] = pd.to_datetime(df_rif["Data"]).dt.date
                     st.session_state.rifornimenti_dkv = df_rif
+                if "telepass" in dati and dati["telepass"]:
+                    df_tel = pd.DataFrame(dati["telepass"])
+                    if "Data" in df_tel.columns:
+                        df_tel["Data"] = pd.to_datetime(df_tel["Data"]).dt.date
+                    st.session_state.dati_telepass = df_tel
         except Exception:
             pass
 
 def rimuovi_allegato(indice):
     st.session_state.allegati_dkv_list.pop(indice)
 
-# Finestra modale per l'ingrandimento dello scontrino
 @st.dialog("🔍 Visualizzazione Ingrandita Scontrino")
 def mostra_scontrino_modal(file_obj, file_name):
     st.write(f"**{file_name}**")
@@ -74,6 +79,9 @@ if "primo_avvio" not in st.session_state:
 
 if "allegati_dkv_list" not in st.session_state:
     st.session_state.allegati_dkv_list = []
+
+if "dati_telepass" not in st.session_state:
+    st.session_state.dati_telepass = pd.DataFrame(columns=["Data", "Tratta / Casello", "Importo (€)", "Categoria"])
 
 # --- INTESTAZIONE CON LOGO ---
 col_logo, col_intestazione = st.columns([1, 3])
@@ -145,15 +153,99 @@ with col_salva2:
         carica_bozza_automatica()
         st.rerun()
 with col_salva3:
-    if st.button("🗑️️ Svuota Tutto", use_container_width=True):
+    if st.button("🗑️ Svuota Tutto", use_container_width=True):
         if os.path.exists(PATH_BOZZA_LOCALE):
             os.remove(PATH_BOZZA_LOCALE)
         st.session_state.dati_spese_v2 = crea_df_iniziale()
         st.session_state.rifornimenti_dkv = pd.DataFrame([])
+        st.session_state.dati_telepass = pd.DataFrame(columns=["Data", "Tratta / Casello", "Importo (€)", "Categoria"])
         st.session_state.allegati_dkv_list = []
         st.rerun()
 
-st.subheader("📋 Inserimento Voci di Spesa")
+st.divider()
+
+# --- SEZIONE TELEPASS: CARICAMENTO E GESTIONE DETTAGLIATA ---
+st.subheader("🚗 1. Caricamento File e Dettaglio Pedaggi Telepass")
+st.info("Carica il prospetto Telepass (CSV o Excel) oppure inserisci manualmente le singole tratte dei pedaggi giornalieri.")
+
+file_telepass = st.file_uploader(
+    "📎 Carica Estratto Conto / File Telepass (CSV o Excel)",
+    type=["csv", "xlsx", "xls"],
+    key="uploader_telepass"
+)
+
+if file_telepass is not None:
+    try:
+        if file_telepass.name.endswith('.csv'):
+            df_loaded = pd.read_csv(file_telepass)
+        else:
+            df_loaded = pd.read_excel(file_telepass)
+        
+        st.success(f"File '{file_telepass.name}' caricato correttamente!")
+        # Tentativo di mappatura colonne generica se presente nel file
+        if not df_loaded.empty:
+            st.session_state.dati_telepass = df_loaded
+    except Exception as e:
+        st.error(f"Errore nella lettura del file Telepass: {e}")
+
+# Tabella interattiva pedaggi Telepass
+df_telepass_edited = st.data_editor(
+    st.session_state.dati_telepass,
+    num_rows="dynamic",
+    use_container_width=True,
+    key="editor_telepass",
+    column_config={
+        "Data": st.column_config.DateColumn("Data Pedaggio", format="DD/MM/YYYY"),
+        "Tratta / Casello": st.column_config.TextColumn("Tratta / Ingresso-Uscita"),
+        "Importo (€)": st.column_config.NumberColumn("Importo (€)", min_value=0.0, format="%.2f €"),
+        "Categoria": st.column_config.SelectboxColumn("Categoria Spesa", options=["Cat. A", "Cat. B"])
+    }
+)
+st.session_state.dati_telepass = df_telepass_edited.copy()
+
+# Pulsante per aggregare e riportare i pedaggi nella tabella principale
+if st.button("🔄 Imputa Totali Telepass nella Nota Spese Giornaliera", type="secondary"):
+    if not df_telepass_edited.empty and "Data" in df_telepass_edited.columns:
+        # Pulisce i dati e raggruppa per data e categoria
+        df_tel_clean = df_telepass_edited.dropna(subset=["Data"]).copy()
+        
+        # Inizializza o aggiorna le colonne Autostrade A e B nella tabella generale
+        df_spese_curr = st.session_state.dati_spese_v2.copy()
+        
+        for idx, row in df_tel_clean.iterrows():
+            data_pedaggio = row["Data"]
+            importo = float(row.get("Importo (€)", 0.0) or 0.0)
+            categoria = row.get("Categoria", "Cat. A")
+            
+            # Cerca se la data esiste già nella tabella principale
+            mask = df_spese_curr["Data"] == data_pedaggio
+            if mask.any():
+                if categoria == "Cat. B":
+                    df_spese_curr.loc[mask, "Autostrade_B"] = df_spese_curr.loc[mask, "Autostrade_B"] + importo
+                else:
+                    df_spese_curr.loc[mask, "Autostrade_A"] = df_spese_curr.loc[mask, "Autostrade_A"] + importo
+            else:
+                # Se la data non esiste, crea una nuova riga
+                nuova_riga = {
+                    "Data": data_pedaggio,
+                    "Comune": "Da Prospetto Telepass",
+                    "Coordinatore di Zona": "",
+                    "Km_A": 0, "Autostrade_A": importo if categoria != "Cat. B" else 0.0,
+                    "Vitto_A": 0.0, "Varie_A": 0.0,
+                    "Km_B": 0, "Autostrade_B": importo if categoria == "Cat. B" else 0.0,
+                    "Vitto_B": 0.0, "Varie_B": 0.0
+                }
+                df_spese_curr = pd.concat([df_spese_curr, pd.DataFrame([nuova_riga])], ignore_index=True)
+                
+        st.session_state.dati_spese_v2 = df_spese_curr
+        salva_bozza_automatica()
+        st.success("Totali Telepass imputati con successo nella tabella delle spese giornaliere!")
+        st.rerun()
+
+st.divider()
+
+# --- TABELLA PRINCIPALE VOCI DI SPESA ---
+st.subheader("📋 2. Inserimento Voci di Spesa Giornaliere")
 
 df_display = st.session_state.dati_spese_v2.copy()
 df_display["Importo_Km_A"] = pd.to_numeric(df_display.get("Km_A", 0), errors='coerce').fillna(0) * costo_km_a
