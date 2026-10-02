@@ -86,6 +86,9 @@ if "dati_telepass" not in st.session_state:
 if "prospetto_telepass_originale" not in st.session_state:
     st.session_state.prospetto_telepass_originale = None
 
+if "file_telepass_info" not in st.session_state:
+    st.session_state.file_telepass_info = None
+
 # --- INTESTAZIONE CON LOGO ---
 col_logo, col_intestazione = st.columns([1, 3])
 
@@ -163,6 +166,7 @@ with col_salva3:
         st.session_state.rifornimenti_dkv = pd.DataFrame([])
         st.session_state.dati_telepass = pd.DataFrame(columns=["Data", "Tratta / Casello", "Importo (€)", "Categoria"])
         st.session_state.prospetto_telepass_originale = None
+        st.session_state.file_telepass_info = None
         st.session_state.allegati_dkv_list = []
         st.rerun()
 
@@ -181,18 +185,34 @@ if file_telepass is not None:
     try:
         if file_telepass.name.endswith('.csv'):
             st.session_state.prospetto_telepass_originale = pd.read_csv(file_telepass)
+            st.session_state.file_telepass_info = {"type": "csv", "name": file_telepass.name}
         elif file_telepass.name.endswith(('.xlsx', '.xls')):
             st.session_state.prospetto_telepass_originale = pd.read_excel(file_telepass)
+            st.session_state.file_telepass_info = {"type": "excel", "name": file_telepass.name}
         elif file_telepass.name.endswith('.pdf'):
             st.session_state.prospetto_telepass_originale = None
-            st.info("File PDF caricato correttamente.")
+            st.session_state.file_telepass_info = {
+                "type": "pdf",
+                "name": file_telepass.name,
+                "bytes": file_telepass.getvalue()
+            }
     except Exception as e:
         st.error(f"Errore nella lettura del file Telepass: {e}")
 
-# Visualizzazione del prospetto completo caricato
+# Visualizzazione SEMPRE ATTIVA del prospetto caricato
 if st.session_state.prospetto_telepass_originale is not None:
     st.markdown("### 📊 Prospetto Spese Telepass Caricato")
     st.dataframe(st.session_state.prospetto_telepass_originale, use_container_width=True)
+elif st.session_state.file_telepass_info and st.session_state.file_telepass_info.get("type") == "pdf":
+    st.markdown("### 📄 Documento Telepass PDF Caricato")
+    info = st.session_state.file_telepass_info
+    st.success(f"File allegato: **{info['name']}**")
+    st.download_button(
+        label="📥 Apri / Scarica PDF Telepass Caricato",
+        data=info["bytes"],
+        file_name=info["name"],
+        mime="application/pdf"
+    )
 
 st.markdown("#### 📝 Dettaglio e Totale Spese Telepass")
 
