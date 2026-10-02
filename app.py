@@ -57,7 +57,6 @@ coordinatori = [
     "Coordinatore Stella"
 ]
 
-# Inizializzazione della tabella in session_state
 def crea_df_iniziale():
     return pd.DataFrame([
         {
@@ -78,27 +77,30 @@ def crea_df_iniziale():
 if "dati_spese_v2" not in st.session_state:
     st.session_state.dati_spese_v2 = crea_df_iniziale()
 
-# --- CARICAMENTO BOZZA SALVATA ---
+# --- CARICAMENTO BOZZA ---
 with st.expander("📁 Salva o Ripristina una Bozza di Lavoro"):
-    col_up, col_down = st.columns(2)
-    with col_up:
-        uploaded_file = st.file_uploader("Carica file bozza (.json o .csv)", type=["json", "csv"])
-        if uploaded_file is not None:
-            try:
-                if uploaded_file.name.endswith(".json"):
-                    data_loaded = json.load(uploaded_file)
-                    st.session_state.dati_spese_v2 = pd.DataFrame(data_loaded)
-                else:
-                    st.session_state.dati_spese_v2 = pd.read_csv(uploaded_file)
-                st.success("Bozza caricata con successo!")
-            except Exception as e:
-                st.error("Errore nel caricamento del file.")
+    uploaded_file = st.file_uploader("Carica file bozza (.json o .csv)", type=["json", "csv"])
+    if uploaded_file is not None:
+        try:
+            if uploaded_file.name.endswith(".json"):
+                data_loaded = json.load(uploaded_file)
+                st.session_state.dati_spese_v2 = pd.DataFrame(data_loaded)
+            else:
+                st.session_state.dati_spese_v2 = pd.read_csv(uploaded_file)
+            st.success("Bozza caricata con successo!")
+        except Exception:
+            st.error("Errore nel caricamento del file.")
 
 st.subheader("📋 Inserimento Voci di Spesa")
 
-# --- TABELLA EDITABILE CON SALVATAGGIO AUTOMATICO LO STATO ---
+# Preparo i dati aggiungendo il calcolo dinamico per gli importi chilometrici
+df_display = st.session_state.dati_spese_v2.copy()
+df_display["Importo_Km_A"] = pd.to_numeric(df_display.get("Km_A", 0), errors='coerce').fillna(0) * costo_km_a
+df_display["Importo_Km_B"] = pd.to_numeric(df_display.get("Km_B", 0), errors='coerce').fillna(0) * costo_km_b
+
+# --- TABELLA EDITABILE ---
 df_edit = st.data_editor(
-    st.session_state.dati_spese_v2,
+    df_display,
     num_rows="dynamic",
     use_container_width=True,
     key="editor_spese",
@@ -107,20 +109,22 @@ df_edit = st.data_editor(
         "Comune": st.column_config.TextColumn("Comune / Note"),
         "Coordinatore di Zona": st.column_config.SelectboxColumn("Coordinatore di Zona", options=coordinatori),
         "Km_A": st.column_config.NumberColumn("Km Percorsi (0,25 €)", min_value=0, step=1),
+        "Importo_Km_A": st.column_config.NumberColumn("Tot. Rimborso Km A (€)", format="%.2f €", disabled=True),
         "Autostrade_A": st.column_config.NumberColumn("Autostrade A (€)", min_value=0.0, format="%.2f €"),
         "Vitto_A": st.column_config.NumberColumn("Vitto A (€)", min_value=0.0, format="%.2f €"),
         "Varie_A": st.column_config.NumberColumn("Varie A (€)", min_value=0.0, format="%.2f €"),
         "Km_B": st.column_config.NumberColumn("Km Percorsi (0,20 €)", min_value=0, step=1),
+        "Importo_Km_B": st.column_config.NumberColumn("Tot. Rimborso Km B (€)", format="%.2f €", disabled=True),
         "Autostrade_B": st.column_config.NumberColumn("Autostrade B (€)", min_value=0.0, format="%.2f €"),
         "Vitto_B": st.column_config.NumberColumn("Vitto B (€)", min_value=0.0, format="%.2f €"),
         "Varie_B": st.column_config.NumberColumn("Varie B (€)", min_value=0.0, format="%.2f €"),
     }
 )
 
-# Manteniamo la tabella aggiornata nella sessione ad ogni modifica
-st.session_state.dati_spese_v2 = df_edit.copy()
+# Salvo nella sessione senza le colonne calcolate temporanee per evitare sovrascritture
+st.session_state.dati_spese_v2 = df_edit.drop(columns=["Importo_Km_A", "Importo_Km_B"], errors="ignore").copy()
 
-# --- CALCOLI AUTOMATICI (PAGINA 2 RIEPILOGO) ---
+# --- CALCOLI AUTOMATICI (RIEPILOGO PAGINA 2) ---
 df_finale = df_edit.copy()
 
 if not df_finale.empty:
@@ -157,7 +161,7 @@ if not df_finale.empty:
         st.text_input("Il Dichiarante", f"{nome.upper()} {cognome.upper()}")
         st.caption("Timbro e Firma (L'Amministratore) - Per Autorizzazione Incarico")
 
-    # --- ESPORTAZIONE E SALVATAGGIO ---
+    # --- ESPORTAZIONE ---
     st.divider()
     btn_col1, btn_col2 = st.columns(2)
     
