@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import date
+from PIL import Image
 import os
 
 # Configurazione della pagina
@@ -10,10 +11,15 @@ st.set_page_config(page_title="Nota Spese - Winner", layout="wide")
 col_logo, col_titolo = st.columns([1, 4])
 
 with col_logo:
-    if os.path.exists("logo.jpg"):
-        st.image("logo.jpg", width=200)
-    elif os.path.exists("logo.png"):
-        st.image("logo.png", width=200)
+    # Gestione sicura del caricamento immagine
+    for logo_name in ["logo.jpg", "logo.png", "logo.jpeg"]:
+        if os.path.exists(logo_name):
+            try:
+                img = Image.open(logo_name)
+                st.image(img, width=200)
+                break
+            except Exception:
+                pass
 
 with col_titolo:
     st.title("📄 Nota Spese Dipendenti")
