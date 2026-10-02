@@ -95,6 +95,12 @@ if "prospetto_telepass_originale" not in st.session_state:
 if "file_telepass_info" not in st.session_state:
     st.session_state.file_telepass_info = None
 
+if "img_firma_dipendente" not in st.session_state:
+    st.session_state.img_firma_dipendente = None
+
+if "img_firma_approvatore" not in st.session_state:
+    st.session_state.img_firma_approvatore = None
+
 # --- INTESTAZIONE CON LOGO ---
 col_logo, col_intestazione = st.columns([1, 3])
 
@@ -176,6 +182,8 @@ with col_salva3:
         st.session_state.allegati_dkv_list = []
         st.session_state.firma_dipendente = ""
         st.session_state.firma_approvatore = ""
+        st.session_state.img_firma_dipendente = None
+        st.session_state.img_firma_approvatore = None
         st.rerun()
 
 st.divider()
@@ -416,24 +424,35 @@ if st.session_state.allegati_dkv_list:
 
 st.divider()
 
-# --- SEZIONE FIRME ---
+# --- SEZIONE FIRME CON CARICAMENTO IMMAGINI ---
 st.subheader("✍️ Firme e Approvazione")
 
 col_firma1, col_firma2 = st.columns(2)
 
 with col_firma1:
-    st.markdown("**Firma del Dipendente / Collaboratore**")
+    st.markdown("**Firma Dipendente / Collaboratore**")
     firma_dip = st.text_input(
-        "Nome e Cognome per Firma Digitale / Sigla Dipendente",
+        "Nome e Cognome Dipendente",
         value=st.session_state.get("firma_dipendente", f"{st.session_state.get('nome_user', '')} {st.session_state.get('cognome_user', '')}"),
         key="firma_dipendente_input"
     )
     st.session_state["firma_dipendente"] = firma_dip
-    if firma_dip:
+
+    file_firma_dip = st.file_uploader(
+        "📷 Carica Immagine Firma Autografa Dipendente (PNG, JPG)",
+        type=["png", "jpg", "jpeg"],
+        key="uploader_firma_dipendente"
+    )
+    if file_firma_dip is not None:
+        st.session_state.img_firma_dipendente = file_firma_dip.getvalue()
+
+    if st.session_state.img_firma_dipendente:
+        st.image(st.session_state.img_firma_dipendente, caption="Firma Dipendente Caricata", width=250)
+    elif firma_dip:
         st.info(f"Signed digitally by: **{firma_dip}** in data {date.today().strftime('%d/%m/%Y')}")
 
 with col_firma2:
-    st.markdown("**Firma per Approvazione / Responsabile**")
+    st.markdown("**Firma Approvazione / Responsabile**")
     firma_appr = st.text_input(
         "Nome e Cognome Responsabile / Coordinatore",
         value=st.session_state.get("firma_approvatore", ""),
@@ -441,7 +460,18 @@ with col_firma2:
         placeholder="Es. Coordinatore di Zona / Direzione"
     )
     st.session_state["firma_approvatore"] = firma_appr
-    if firma_appr:
+
+    file_firma_appr = st.file_uploader(
+        "📷 Carica Immagine Firma Responsabile (PNG, JPG)",
+        type=["png", "jpg", "jpeg"],
+        key="uploader_firma_approvatore"
+    )
+    if file_firma_appr is not None:
+        st.session_state.img_firma_approvatore = file_firma_appr.getvalue()
+
+    if st.session_state.img_firma_approvatore:
+        st.image(st.session_state.img_firma_approvatore, caption="Firma Responsabile Caricata", width=250)
+    elif firma_appr:
         st.success(f"Approved by: **{firma_appr}** in data {date.today().strftime('%d/%m/%Y')}")
 
 st.divider()
