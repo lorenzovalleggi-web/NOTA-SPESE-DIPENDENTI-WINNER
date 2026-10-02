@@ -54,7 +54,6 @@ def carica_bozza_automatica():
                     df_tel = pd.DataFrame(dati["telepass"])
                     if "Data" in df_tel.columns:
                         df_tel["Data"] = pd.to_datetime(df_tel["Data"]).dt.date
-                    # Mantiene solo le colonne previste
                     cols_tot = [c for c in ["Data", "Importo (€)", "Categoria"] if c in df_tel.columns]
                     st.session_state.dati_telepass = df_tel[cols_tot]
         except Exception:
@@ -62,6 +61,10 @@ def carica_bozza_automatica():
 
 def rimuovi_allegato(indice):
     st.session_state.allegati_dkv_list.pop(indice)
+
+def elimina_documento_telepass():
+    st.session_state.file_telepass_info = None
+    st.session_state.prospetto_telepass_originale = None
 
 @st.dialog("🔍 Visualizzazione Ingrandita")
 def mostra_scontrino_modal(file_obj, file_name, file_bytes=None, mime_type=None):
@@ -181,7 +184,7 @@ with col_salva2:
         carica_bozza_automatica()
         st.rerun()
 with col_salva3:
-    if st.button("🗑️️ Svuota Tutto", use_container_width=True):
+    if st.button("🗑 Svuota Tutto", use_container_width=True):
         if os.path.exists(PATH_BOZZA_LOCALE):
             os.remove(PATH_BOZZA_LOCALE)
         st.session_state.dati_spese_v2 = crea_df_iniziale()
@@ -238,7 +241,7 @@ if file_telepass is not None:
     except Exception as e:
         st.error(f"Errore nella lettura del file Telepass: {e}")
 
-# ANTEPRIMA DEL PROSPETTO TELEPASS CARICATO
+# ANTEPRIMA DEL PROSPETTO TELEPASS CARICATO CON OPZIONE DI ELIMINAZIONE
 if st.session_state.file_telepass_info is not None:
     info = st.session_state.file_telepass_info
     st.markdown("### 🔍 Anteprima Documento Telepass Allegato")
@@ -276,6 +279,11 @@ if st.session_state.file_telepass_info is not None:
                         key="dl_telepass_doc",
                         use_container_width=True
                     )
+
+            # Pulsante Elimina Documento Telepass
+            if st.button("🗑 Rimuovi / Elimina Documento Telepass", key="del_telepass_doc", use_container_width=True):
+                elimina_documento_telepass()
+                st.rerun()
 
     with col_prev2:
         if st.session_state.prospetto_telepass_originale is not None:
