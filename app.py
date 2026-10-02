@@ -78,7 +78,7 @@ if "dati_spese_v2" not in st.session_state:
     st.session_state.dati_spese_v2 = crea_df_iniziale()
 
 # --- CARICAMENTO BOZZA ---
-with st.expander("📁 Salva o Ripristina una Bozza di Lavoro"):
+with st.expander("📁 Carica una Bozza di Lavoro Salvata"):
     uploaded_file = st.file_uploader("Carica file bozza (.json o .csv)", type=["json", "csv"])
     if uploaded_file is not None:
         try:
@@ -121,8 +121,15 @@ df_edit = st.data_editor(
     }
 )
 
-# Salvo nella sessione senza le colonne calcolate temporanee per evitare sovrascritture
+# Salvo automaticamente nella sessione senza le colonne calcolate temporanee
 st.session_state.dati_spese_v2 = df_edit.drop(columns=["Importo_Km_A", "Importo_Km_B"], errors="ignore").copy()
+
+# --- PULSANTE DI SALVATAGGIO MANUALE ---
+col_salva1, col_salva2 = st.columns([1, 4])
+with col_salva1:
+    if st.button("💾 Salva Modifiche", type="primary"):
+        st.session_state.dati_spese_v2 = df_edit.drop(columns=["Importo_Km_A", "Importo_Km_B"], errors="ignore").copy()
+        st.success("Modifiche salvate nella sessione!")
 
 # --- CALCOLI AUTOMATICI (RIEPILOGO PAGINA 2) ---
 df_finale = df_edit.copy()
@@ -177,7 +184,7 @@ if not df_finale.empty:
     with btn_col2:
         json_data = df_finale.to_json(orient="records", date_format="iso")
         st.download_button(
-            label="💾 Salva Bozza di Lavoro (.json)",
+            label="💾 Scarica File Bozza (.json)",
             data=json_data,
             file_name=f"Bozza_Nota_Spese_{cognome}.json",
             mime="application/json"
