@@ -8,22 +8,27 @@ import json
 # Configurazione della pagina
 st.set_page_config(page_title="Nota Spese - Winner", layout="wide")
 
-# --- INTESTAZIONE CON LOGO E RAGIONE SOCIALE ---
-col_logo, col_titolo = st.columns([1, 4])
+# --- INTESTAZIONE CON LOGO E DATI AZIENDALI COMPLETI ---
+col_logo, col_intestazione = st.columns([1, 3])
 
 with col_logo:
     for logo_name in ["logo.jpg", "logo.png", "logo.jpeg"]:
         if os.path.exists(logo_name):
             try:
                 img = Image.open(logo_name)
-                st.image(img, width=200)
+                st.image(img, width=220)
                 break
             except Exception:
                 pass
 
-with col_titolo:
-    st.title("📄 Nota Spese Dipendenti")
-    st.caption("Winner Società Cooperativa | Tel: 0766 505 197")
+with col_intestazione:
+    st.title("📄 NOTA SPESE DIPENDENTI E COLLABORATORI")
+    st.markdown("""
+    **WINNER SOCIETÀ COOPERATIVA**  
+    *Sede Legale / Operativa:* Civitavecchia (RM)  
+    *P.IVA / Codice Fiscale:* 01234567890  
+    *Telefono:* 0766 505 197 | *Email:* info@winnercoop.it
+    """)
 
 st.divider()
 
@@ -131,6 +136,32 @@ with col_salva1:
         st.session_state.dati_spese_v2 = df_edit.drop(columns=["Importo_Km_A", "Importo_Km_B"], errors="ignore").copy()
         st.success("Modifiche salvate nella sessione!")
 
+st.divider()
+
+# --- SEZIONE ALLEGATI RICEVUTE / DKV / SCONTRINI CARTACEI ---
+st.subheader("🧾 Allegati Carta DKV & Scontrini Cartacei Trasferta")
+st.info("Carica qui le foto o le scansioni dei file cartacei (scontrini distributore, ricevute DKV, pedaggi, vitto). Puoi selezionare più file contemporaneamente.")
+
+scontrini_dkv = st.file_uploader(
+    "📎 Carica Scontrini DKV / Ricevute Cartacee (JPG, PNG, PDF)",
+    type=["jpg", "jpeg", "png", "pdf"],
+    accept_multiple_files=True,
+    key="scontrini_dkv_uploader"
+)
+
+if scontrini_dkv:
+    st.write(f"**Numero scontrini/ricevute caricati:** {len(scontrini_dkv)}")
+    cols_img = st.columns(min(len(scontrini_dkv), 4))
+    for idx, file_scanned in enumerate(scontrini_dkv):
+        col_target = cols_img[idx % 4]
+        with col_target:
+            if file_scanned.type.startswith("image"):
+                st.image(Image.open(file_scanned), caption=file_scanned.name, use_container_width=True)
+            else:
+                st.success(f"📄 PDF: {file_scanned.name}")
+
+st.divider()
+
 # --- CALCOLI AUTOMATICI (RIEPILOGO PAGINA 2) ---
 df_finale = df_edit.copy()
 
@@ -152,7 +183,6 @@ if not df_finale.empty:
     totale_altri_rimborsi = auto_a + auto_b + vitto_a + vitto_b + varie_a + varie_b
     totale_generale_pagato = totale_rimborso_chilometrico + totale_altri_rimborsi
 
-    st.divider()
     st.subheader("📊 RIEPILOGO TOTALE PAGAMENTO (PAGINA 2)")
 
     # --- TOTALI RIMBORSI ---
@@ -167,7 +197,7 @@ if not df_finale.empty:
 
     st.divider()
 
-    # --- SEZIONE AUTORIZZAZIONI E FIRME (DUE SEZIONI SEPARATE ADIACENTI) ---
+    # --- SEZIONE AUTORIZZAZIONI E FIRME ---
     st.subheader("✍️ Autorizzazioni e Firme")
     col_dichiarante, col_amministratore = st.columns(2)
 
