@@ -194,10 +194,18 @@ if st.session_state.prospetto_telepass_originale is not None:
     st.markdown("### 📊 Prospetto Spese Telepass Caricato")
     st.dataframe(st.session_state.prospetto_telepass_originale, use_container_width=True)
 
-st.markdown("#### 📝 Imputazione Giornaliera Pedaggi Telepass")
-st.caption("Inserisci o verifica gli importi complessivi del singolo giorno per trasferirli nella nota spese:")
+st.markdown("#### 📝 Dettaglio e Totale Spese Telepass")
 
-# Tabella interattiva per imputazione giorno per giorno
+# Calcolo totale spese Telepass
+totale_telepass_calc = 0.0
+if not st.session_state.dati_telepass.empty and "Importo (€)" in st.session_state.dati_telepass.columns:
+    totale_telepass_calc = pd.to_numeric(st.session_state.dati_telepass["Importo (€)"], errors='coerce').fillna(0).sum()
+
+col_tele_tot1, col_tele_tot2 = st.columns([1, 2])
+with col_tele_tot1:
+    st.metric("TOTALE SPESE TELEPASS", f"€ {totale_telepass_calc:.2f}")
+
+# Tabella interattiva per imputazione giorno per giorno o dettaglio
 df_telepass_edited = st.data_editor(
     st.session_state.dati_telepass,
     num_rows="dynamic",
@@ -212,39 +220,61 @@ df_telepass_edited = st.data_editor(
 )
 st.session_state.dati_telepass = df_telepass_edited.copy()
 
-# Pulsante per aggregare e riportare i pedaggi nella tabella principale
-if st.button("🔄 Trasferisci Pedaggi nella Nota Spese Giornaliera", type="primary"):
-    if not df_telepass_edited.empty and "Data" in df_telepass_edited.columns:
-        df_tel_clean = df_telepass_edited.dropna(subset=["Data"]).copy()
-        df_spese_curr = st.session_state.dati_spese_v2.copy()
-        
-        for idx, row in df_tel_clean.iterrows():
-            data_pedaggio = row["Data"]
-            importo = float(row.get("Importo (€)", 0.0) or 0.0)
-            categoria = row.get("Categoria", "Cat. A")
+# Pulsanti per riportare le spese nella nota generale
+btn_col_t1, btn_col_t2 = st.columns(2)
+
+with btn_col_t1:
+    if st.button("➕ Aggiungi Totale Telepass in Nota Spese", type="primary", use_container_width=True):
+        if totale_telepass_calc > 0:
+            df_spese_curr = st.session_state.dati_spese_v2.copy()
+            nuova_riga = {
+                "Data": date.today(),
+                "Comune": "Totale Prospetto Telepass",
+                "Coordinatore di Zona": "",
+                "Km_A": 0, "Autostrade_A": totale_telepass_calc,
+                "Vitto_A": 0.0, "Varie_A": 0.0,
+                "Km_B": 0, "Autostrade_B": 0.0,
+                "Vitto_B": 0.0, "Varie_B": 0.0
+            }
+            df_spese_curr = pd.concat([df_spese_curr, pd.DataFrame([nuova_riga])], ignore_index=True)
+            st.session_state.dati_spese_v2 = df_spese_curr
+            salva_bozza_automatica()
+            st.success(f"Totale Telepass (€ {totale_telepass_calc:.2f}) aggiunto alla nota spese!")
+            st.rerun()
+
+with btn_col_t2:
+    if st.button("🔄 Trasferisci Pedaggi Giornalieri nella Nota Spese", use_container_width=True):
+        if not df_telepass_edited.empty and "Data" in df_telepass_edited.columns:
+            df_tel_clean = df_telepass_edited.dropna(subset=["Data"]).copy()
+            df_spese_curr = st.session_state.dati_spese_v2.copy()
             
-            mask = df_spese_curr["Data"] == data_pedaggio
-            if mask.any():
-                if categoria == "Cat. B":
-                    df_spese_curr.loc[mask, "Autostrade_B"] = df_spese_curr.loc[mask, "Autostrade_B"] + importo
-                else:
-                    df_spese_curr.loc[mask, "Autostrade_A"] = df_spese_curr.loc[mask, "Autostrade_A"] + importo
-            else:
-                nuova_riga = {
-                    "Data": data_pedaggio,
-                    "Comune": "Da Prospetto Telepass",
-                    "Coordinatore di Zona": "",
-                    "Km_A": 0, "Autostrade_A": importo if categoria != "Cat. B" else 0.0,
-                    "Vitto_A": 0.0, "Varie_A": 0.0,
-                    "Km_B": 0, "Autostrade_B": importo if categoria == "Cat. B" else 0.0,
-                    "Vitto_B": 0.0, "Varie_B": 0.0
-                }
-                df_spese_curr = pd.concat([df_spese_curr, pd.DataFrame([nuova_riga])], ignore_index=True)
+            for idx, row in df_tel_clean.iterrows():
+                data_pedaggio = row["Data"]
+                importo = float(row.get("Importo (€)", 0.0) or 0.0)
+                categoria = row.get("Categoria", "Cat. A")
                 
-        st.session_state.dati_spese_v2 = df_spese_curr
-        salva_bozza_automatica()
-        st.success("Spese autostradali aggiunte correttamente alla nota spese!")
-        st.rerun()
+                mask = df_spese_curr["Data"] == data_pedaggio
+                if mask.any():
+                    if categoria == "Cat. B":
+                        df_spese_curr.loc[mask, "Autostrade_B"] = df_spese_curr.loc[mask, "Autostrade_B"] + importo
+                    else:
+                        df_spese_curr.loc[mask, "Autostrade_A"] = df_spese_curr.loc[mask, "Autostrade_A"] + importo
+                else:
+                    nuova_riga = {
+                        "Data": data_pedaggio,
+                        "Comune": "Da Prospetto Telepass",
+                        "Coordinatore di Zona": "",
+                        "Km_A": 0, "Autostrade_A": importo if categoria != "Cat. B" else 0.0,
+                        "Vitto_A": 0.0, "Varie_A": 0.0,
+                        "Km_B": 0, "Autostrade_B": importo if categoria == "Cat. B" else 0.0,
+                        "Vitto_B": 0.0, "Varie_B": 0.0
+                    }
+                    df_spese_curr = pd.concat([df_spese_curr, pd.DataFrame([nuova_riga])], ignore_index=True)
+                    
+            st.session_state.dati_spese_v2 = df_spese_curr
+            salva_bozza_automatica()
+            st.success("Spese autostradali aggiunte correttamente alla nota spese!")
+            st.rerun()
 
 st.divider()
 
