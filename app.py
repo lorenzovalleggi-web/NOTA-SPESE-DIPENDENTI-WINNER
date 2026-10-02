@@ -11,7 +11,6 @@ st.set_page_config(page_title="Nota Spese - Winner", layout="wide")
 col_logo, col_titolo = st.columns([1, 4])
 
 with col_logo:
-    # Gestione sicura del caricamento immagine
     for logo_name in ["logo.jpg", "logo.png", "logo.jpeg"]:
         if os.path.exists(logo_name):
             try:
@@ -34,7 +33,8 @@ with col1:
 with col2:
     cognome = st.text_input("Cognome", "VALLEGGI")
 with col3:
-    costo_km = st.number_input("Rimborsabilita Km (€)", value=0.25, step=0.01)
+    # Impostato a 0.25 fisso e non modificabile dall'utente
+    costo_km = st.number_input("Rimborsabilità Km (€)", value=0.25, disabled=True)
 
 st.divider()
 
