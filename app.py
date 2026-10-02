@@ -82,6 +82,14 @@ def crea_df_iniziale():
 if "dati_spese_v2" not in st.session_state:
     st.session_state.dati_spese_v2 = crea_df_iniziale()
 
+if "rifornimenti_dkv" not in st.session_state:
+    st.session_state.rifornimenti_dkv = pd.DataFrame([
+        {"Data": date.today(), "Importo (€)": 0.0, "Litri": 0.0, "Distributore / Note": "Stazione DKV"}
+    ])
+
+if "allegati_dkv_list" not in st.session_state:
+    st.session_state.allegati_dkv_list = []
+
 # --- CARICAMENTO BOZZA ---
 with st.expander("📁 Carica una Bozza di Lavoro Salvata"):
     uploaded_file = st.file_uploader("Carica file bozza (.json o .csv)", type=["json", "csv"])
@@ -103,7 +111,7 @@ df_display = st.session_state.dati_spese_v2.copy()
 df_display["Importo_Km_A"] = pd.to_numeric(df_display.get("Km_A", 0), errors='coerce').fillna(0) * costo_km_a
 df_display["Importo_Km_B"] = pd.to_numeric(df_display.get("Km_B", 0), errors='coerce').fillna(0) * costo_km_b
 
-# --- TABELLA EDITABILE ---
+# --- TABELLA EDITABILE SPESE ---
 df_edit = st.data_editor(
     df_display,
     num_rows="dynamic",
@@ -132,33 +140,84 @@ st.session_state.dati_spese_v2 = df_edit.drop(columns=["Importo_Km_A", "Importo_
 # --- PULSANTE DI SALVATAGGIO MANUALE ---
 col_salva1, col_salva2 = st.columns([1, 4])
 with col_salva1:
-    if st.button("💾 Salva Modifiche", type="primary"):
+    if st.button("💾 Salva Modifiche Spese", type="primary"):
         st.session_state.dati_spese_v2 = df_edit.drop(columns=["Importo_Km_A", "Importo_Km_B"], errors="ignore").copy()
         st.success("Modifiche salvate nella sessione!")
 
 st.divider()
 
-# --- SEZIONE ALLEGATI RICEVUTE / DKV / SCONTRINI CARTACEI ---
-st.subheader("🧾 Allegati Carta DKV & Scontrini Cartacei Trasferta")
-st.info("Carica qui le foto o le scansioni dei file cartacei (scontrini distributore, ricevute DKV, pedaggi, vitto). Puoi selezionare più file contemporaneamente.")
+# --- SEZIONE RIFORNIMENTI CARTA DKV E TOTALE GIORNALIERO ---
+st.subheader("⛽ Registrazione Rifornimenti Carta DKV & Totali del Giorno")
 
-scontrini_dkv = st.file_uploader(
-    "📎 Carica Scontrini DKV / Ricevute Cartacee (JPG, PNG, PDF)",
-    type=["jpg", "jpeg", "png", "pdf"],
-    accept_multiple_files=True,
-    key="scontrini_dkv_uploader"
+df_rifornimenti = st.data_editor(
+    st.session_state.rifornimenti_dkv,
+    num_rows="dynamic",
+    use_container_width=True,
+    key="editor_rifornimenti",
+    column_config={
+        "Data": st.column_config.DateColumn("Data Rifornimento", format="DD/MM/YYYY"),
+        "Importo (€)": st.column_config.NumberColumn("Importo Speso (€)", min_value=0.0, format="%.2f €"),
+        "Litri": st.column_config.NumberColumn("Litri Carburante", min_value=0.0, format="%.2f L"),
+        "Distributore / Note": st.column_config.TextColumn("Distributore / Note"),
+    }
 )
 
-if scontrini_dkv:
-    st.write(f"**Numero scontrini/ricevute caricati:** {len(scontrini_dkv)}")
-    cols_img = st.columns(min(len(scontrini_dkv), 4))
-    for idx, file_scanned in enumerate(scontrini_dkv):
-        col_target = cols_img[idx % 4]
-        with col_target:
-            if file_scanned.type.startswith("image"):
-                st.image(Image.open(file_scanned), caption=file_scanned.name, use_container_width=True)
+st.session_state.rifornimenti_dkv = df_rifornimenti.copy()
+
+# Calcolo totale giorno specifico
+if not df_rifornimenti.empty:
+    col_giorno, col_risultato = st.columns([2, 2])
+    with col_giorno:
+        giorno_selezionato = st.date_input("Seleziona il giorno per vedere il totale speso:", date.today())
+    
+    with col_risultato:
+        df_rifornimenti["Data_dt"] = pd.to_datetime(df_rifornimenti["Data"]).dt.date
+        totale_giorno = df_rifornimenti[df_rifornimenti["Data_dt"] == giorno_selezionato]["Importo (€)"].sum()
+        st.metric(f"Totale DKV del {giorno_selezionato.strftime('%d/%m/%Y')}", f"€ {totale_giorno:.2f}")
+
+st.divider()
+
+# --- SEZIONE ALLEGATI CON RIMOZIONE E REINSERIMENTO FOTO ---
+st.subheader("🧾 Gestione Foto Scontrini Cartacei / DKV")
+st.info("Carica le foto degli scontrini. Puoi eliminarle singolarmente e caricare nuove immagini in qualsiasi momento.")
+
+nuovi_file = st.file_uploader(
+    "📎 Aggiungi Foto/Scontrini (JPG, PNG, PDF)",
+    type=["jpg", "jpeg", "png", "pdf"],
+    accept_multiple_files=True,
+    key="nuovi_scontrini_uploader"
+)
+
+if nuovi_file:
+    for f in nuovi_file:
+        if f.name not in [x["name"] for x in st.session_state.allegati_dkv_list]:
+            st.session_state.allegati_dkv_list.append({"name": f.name, "file": f})
+
+# MOSTRA E ELIMINA FOTO
+if st.session_state.allegati_dkv_list:
+    st.write(f"**Scontrini allegati in memoria:** {len(st.session_state.allegati_dkv_list)}")
+    
+    cols_foto = st.columns(min(len(st.session_state.allegati_dkv_list), 4))
+    
+    indici_da_rimuovere = []
+    for idx, item in enumerate(st.session_state.allegati_dkv_list):
+        col_curr = cols_foto[idx % 4]
+        with col_curr:
+            file_obj = item["file"]
+            file_name = item["name"]
+            
+            if file_obj.type.startswith("image"):
+                st.image(Image.open(file_obj), caption=file_name, use_container_width=True)
             else:
-                st.success(f"📄 PDF: {file_scanned.name}")
+                st.success(f"📄 PDF: {file_name}")
+            
+            if st.button(f"🗑️ Rimuovi", key=f"del_{idx}_{file_name}"):
+                indici_da_rimuovere.append(idx)
+    
+    if indici_da_rimuovere:
+        for index in sorted(indici_da_rimuovere, reverse=True):
+            st.session_state.allegati_dkv_list.pop(index)
+        st.rerun()
 
 st.divider()
 
