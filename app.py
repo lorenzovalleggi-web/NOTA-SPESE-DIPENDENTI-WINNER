@@ -4,6 +4,7 @@ from datetime import date
 from PIL import Image
 import os
 import json
+import base64
 
 # 1. Configurazione della pagina
 st.set_page_config(page_title="Nota Spese - Winner", layout="wide")
@@ -82,10 +83,8 @@ def elimina_documento_telepass():
     st.session_state.file_telepass_info = None
     st.session_state.prospetto_telepass_originale = None
 
-@st.dialog("🔍 Visualizzazione Ingrandita")
-def mostra_scontrino_modal(file_obj, file_name, file_bytes=None, mime_type=None):
-    st.write(f"**{file_name}**")
-    
+# --- VISUALIZZATORE ANTEPRIMA MULTI-FORMATO (IMMAGINI E PDF) ---
+def mostra_anteprima_scontrino(file_obj, file_name, file_bytes=None, mime_type=None, height=250):
     b_data = file_obj.getvalue() if file_obj is not None else file_bytes
     m_type = file_obj.type if file_obj is not None else (mime_type or "application/octet-stream")
 
@@ -96,11 +95,26 @@ def mostra_scontrino_modal(file_obj, file_name, file_bytes=None, mime_type=None)
             import io
             img = Image.open(io.BytesIO(b_data))
         st.image(img, use_container_width=True)
+    elif m_type == "application/pdf":
+        try:
+            base64_pdf = base64.b64encode(b_data).decode('utf-8')
+            pdf_display = f''
+            st.markdown(pdf_display, unsafe_allow_html=True)
+        except Exception:
+            st.info("📄 Documento PDF Allegato (Anteprima non supportata nel browser)")
     else:
-        st.info("Questo allegato è un documento PDF / File di dati.")
+        st.info(f"📄 Documento allegato (`{file_name}`)")
+
+@st.dialog("🔍 Visualizzazione Ingrandita Scontrino")
+def mostra_scontrino_modal(file_obj, file_name, file_bytes=None, mime_type=None):
+    st.write(f"### 📄 **{file_name}**")
+    mostra_anteprima_scontrino(file_obj, file_name, file_bytes, mime_type, height=500)
+    
+    b_data = file_obj.getvalue() if file_obj is not None else file_bytes
+    m_type = file_obj.type if file_obj is not None else (mime_type or "application/octet-stream")
     
     st.download_button(
-        label="💾 Scarica / Apri file",
+        label="💾 Scarica File Originale",
         data=b_data,
         file_name=file_name,
         mime=m_type,
@@ -217,7 +231,7 @@ with col_salva3:
 
 st.divider()
 
-# --- SEZIONE TELEPASS: CARICAMENTO PROSPETTO ED ANTEPRIMA ---
+# --- SEZIONE TELEPASS ---
 st.subheader("🚗 1. Prospetto e Gestione Pedaggi Telepass")
 
 file_telepass = st.file_uploader(
@@ -257,7 +271,6 @@ if file_telepass is not None:
     except Exception as e:
         st.error(f"Errore nella lettura del file Telepass: {e}")
 
-# ANTEPRIMA DEL PROSPETTO TELEPASS CARICATO CON OPZIONE DI ELIMINAZIONE
 if st.session_state.file_telepass_info is not None:
     info = st.session_state.file_telepass_info
     st.markdown("### 🔍 Anteprima Documento Telepass Allegato")
@@ -266,37 +279,21 @@ if st.session_state.file_telepass_info is not None:
     
     with col_prev1:
         with st.container(border=True):
-            if info["type"] == "image":
-                img = Image.open(info["file_obj"])
-                st.image(img, use_container_width=True)
-                st.caption(f"**Immagine:** {info['name']}")
+            mostra_anteprima_scontrino(info.get("file_obj"), info["name"], info.get("bytes"), info.get("mime"), height=250)
+            
+            if st.button("🔍 Ingrandisci Anteprima Telepass", key="zoom_telepass_img", use_container_width=True):
+                mostra_scontrino_modal(info.get("file_obj"), info["name"], info.get("bytes"), info.get("mime"))
                 
-                if st.button("🔍 Ingrandisci", key="zoom_telepass_img", use_container_width=True):
-                    mostra_scontrino_modal(info["file_obj"], info["name"])
-                    
-                st.download_button(
-                    label="📥 Scarica / Apri",
-                    data=info["bytes"],
-                    file_name=info["name"],
-                    mime=info["mime"],
-                    key="dl_telepass_img",
-                    use_container_width=True
-                )
-            else:
-                st.markdown(f"📄 **File Documento:** `{info['name']}`")
-                st.caption(f"Tipo file: {info['type'].upper()}")
-                
-                if info.get("file_obj") is not None:
-                    st.download_button(
-                        label="📥 Scarica / Apri Documento",
-                        data=info["file_obj"].getvalue(),
-                        file_name=info["name"],
-                        mime=info["file_obj"].type,
-                        key="dl_telepass_doc",
-                        use_container_width=True
-                    )
+            st.download_button(
+                label="📥 Scarica Documento",
+                data=info.get("bytes") or (info["file_obj"].getvalue() if info.get("file_obj") else b""),
+                file_name=info["name"],
+                mime=info.get("mime", "application/octet-stream"),
+                key="dl_telepass_doc",
+                use_container_width=True
+            )
 
-            if st.button("🗑 Rimuovi / Elimina Documento Telepass", key="del_telepass_doc", use_container_width=True):
+            if st.button("🗑 Rimuovi Documento Telepass", key="del_telepass_doc", use_container_width=True):
                 elimina_documento_telepass()
                 st.rerun()
 
@@ -438,19 +435,19 @@ st.session_state.rifornimenti_dkv = df_rifornimenti.copy()
 
 st.divider()
 
-# --- GESTIONE ALLEGATI / SCONTRINI CON IMPORTO E MESE ---
+# --- GESTIONE ALLEGATI / SCONTRINI (AUTOSTRADA, VITTO, VARIE) CON ANTEPRIMA ---
 st.subheader("🧾 Gestione Allegati / Scontrini (Autostrada, Vitto, Varie)")
-st.info("Carica gli scontrini indicando l'importo, la data e il mese di riferimento. Potrai visualizzare il totale mensile e le anteprime.")
+st.info("Carica gli scontrini selezionando la categoria (Autostrada, Vitto, Varie), data, importo e mese. Potrai visualizzare l'anteprima immediata di immagini e PDF.")
 
-# 1. FORM DI CARICAMENTO SCONTRINI
+# 1. FORM CARICAMENTO SCONTRINI CON ANTEPRIMA IMMEDIATA
 with st.container(border=True):
-    st.markdown("#### ➕ Carica Nuovo Scontrino")
+    st.markdown("#### ➕ Carica Nuovo Scontrino o Ricevuta")
     
     col_up1, col_up2, col_up3, col_up4 = st.columns([2, 2, 2, 2])
     
     with col_up1:
         tipo_spesa_sel = st.selectbox(
-            "Tipo Spesa",
+            "Categoria Spesa",
             options=["Autostrada", "Vitto", "Varie"],
             key="tipo_spesa_uploader"
         )
@@ -474,7 +471,7 @@ with st.container(border=True):
         importo_scontrino_sel = st.number_input("Importo (€)", min_value=0.0, step=0.50, format="%.2f", key="importo_scontrino_uploader")
 
     nuovi_file = st.file_uploader(
-        f"📎 Seleziona File Scontrino (JPG, PNG, PDF)",
+        "📎 Seleziona File Scontrino (JPG, PNG, PDF)",
         type=["jpg", "jpeg", "png", "pdf"],
         accept_multiple_files=True,
         key="nuovi_scontrini_uploader"
@@ -493,17 +490,16 @@ with st.container(border=True):
                 })
         salva_bozza_automatica()
 
-# 2. RIEPILOGO TOTALI PER MESE
+# 2. RIEPILOGO TOTALI PER MESE E CATEGORIA
 if st.session_state.allegati_dkv_list:
-    st.markdown("### 📊 Totali Spese Scontrini Mese per Mese")
+    st.markdown("### 📊 Riepilogo Totali Scontrini Allegati")
     
-    # Estrazione di tutti i mesi presenti
     mesi_presenti = sorted(list(set(x.get("mese_riferimento", f"{MESI_ANNO[date.today().month-1]} {date.today().year}") for x in st.session_state.allegati_dkv_list)))
     
     col_filtro_m, col_m1, col_m2, col_m3, col_m4 = st.columns([2, 2, 2, 2, 2])
     
     with col_filtro_m:
-        mese_filtrato = st.selectbox("Seleziona Mese da Analizzare:", options=["Tutti i Mesi"] + mesi_presenti)
+        mese_filtrato = st.selectbox("Filtra Mese di Riferimento:", options=["Tutti i Mesi"] + mesi_presenti)
         
     scontrini_filtrati_mese = [
         x for x in st.session_state.allegati_dkv_list
@@ -516,21 +512,21 @@ if st.session_state.allegati_dkv_list:
     tot_generale_mese = tot_auto + tot_vitto + tot_varie
     
     with col_m1:
-        st.metric("Totale Autostrade", f"€ {tot_auto:.2f}")
+        st.metric("🚗 Totale Autostrada", f"€ {tot_auto:.2f}")
     with col_m2:
-        st.metric("Totale Vitto", f"€ {tot_vitto:.2f}")
+        st.metric("🍽️ Totale Vitto", f"€ {tot_vitto:.2f}")
     with col_m3:
-        st.metric("Totale Varie", f"€ {tot_varie:.2f}")
+        st.metric("📦 Totale Varie", f"€ {tot_varie:.2f}")
     with col_m4:
-        st.metric("TOTALE MESE", f"€ {tot_generale_mese:.2f}")
+        st.metric("💰 TOTALE MESE", f"€ {tot_generale_mese:.2f}")
 
     st.divider()
 
-    # 3. FILTRO PER CATEGORIA ED ELENCO SCONTRINI
-    st.markdown("### 🔍 Anteprima e Modifica Scontrini Allegati")
+    # 3. ANTEPRIMA E SCHEDE ALLEGATI
+    st.markdown("### 🖼️ Anteprima e Dettaglio Scontrini Allegati")
     
     cat_filter = st.radio(
-        "Filtra per Categoria:",
+        "Filtra Categoria Spesa:",
         options=["Tutti", "Autostrada", "Vitto", "Varie"],
         horizontal=True,
         key="filtro_allegati"
@@ -555,19 +551,16 @@ if st.session_state.allegati_dkv_list:
                 mese_curr = item.get("mese_riferimento", "")
                 
                 with st.container(border=True):
-                    st.markdown(f"🏷️ **{cat_curr}** | 📅 `{data_curr}`")
+                    st.markdown(f"🏷️ **{cat_curr.upper()}** | 📅 `{data_curr}`")
                     st.markdown(f"💶 **Importo:** € `{imp_curr:.2f}`")
-                    st.caption(f"Mese: **{mese_curr}**")
+                    st.caption(f"Mese Riferimento: **{mese_curr}**")
                     
-                    if file_obj.type.startswith("image"):
-                        img = Image.open(file_obj)
-                        st.image(img, use_container_width=True)
-                    else:
-                        st.markdown("📄 **Allegato PDF**")
-
-                    st.caption(f"File: {file_name}")
+                    # VISUALIZZAZIONE ANTEPRIMA SCONTRINO (IMMAGINE O PDF)
+                    mostra_anteprima_scontrino(file_obj, file_name, height=220)
                     
-                    # Campi modificabili al volo
+                    st.caption(f"📁 `{file_name}`")
+                    
+                    # Modifica rapida importo
                     nuovo_imp = st.number_input(
                         "Modifica Importo (€)",
                         value=float(imp_curr),
@@ -576,11 +569,13 @@ if st.session_state.allegati_dkv_list:
                     )
                     st.session_state.allegati_dkv_list[real_idx]["importo"] = nuovo_imp
                     
-                    if st.button("🔍 Ingrandisci", key=f"zoom_{real_idx}_{file_name}", use_container_width=True):
+                    # Pulsante per ingrandire
+                    if st.button("🔍 Ingrandisci Anteprima", key=f"zoom_{real_idx}_{file_name}", use_container_width=True):
                         mostra_scontrino_modal(file_obj, file_name)
                     
+                    # Download
                     st.download_button(
-                        label="📥 Scarica / Apri",
+                        label="📥 Scarica File",
                         data=file_obj.getvalue(),
                         file_name=file_name,
                         mime=file_obj.type,
@@ -588,15 +583,16 @@ if st.session_state.allegati_dkv_list:
                         use_container_width=True
                     )
                     
+                    # Elimina
                     st.button(
-                        "🗑 Rimuovi Scontrino", 
+                        "🗑 Elimina Scontrino", 
                         key=f"del_{real_idx}_{file_name}", 
                         on_click=rimuovi_allegato, 
                         args=(real_idx,), 
                         use_container_width=True
                     )
     else:
-        st.info("Nessun allegato trovato con i filtri selezionati.")
+        st.info("Nessun allegato trovato per i filtri selezionati.")
 
 st.divider()
 
