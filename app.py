@@ -17,7 +17,9 @@ def salva_bozza_automatica():
         "cognome": st.session_state.get("cognome_user", "VALLEGGI"),
         "spese": st.session_state.dati_spese_v2.to_dict(orient="records") if "dati_spese_v2" in st.session_state else [],
         "rifornimenti": st.session_state.rifornimenti_dkv.to_dict(orient="records") if "rifornimenti_dkv" in st.session_state else [],
-        "telepass": st.session_state.dati_telepass.to_dict(orient="records") if "dati_telepass" in st.session_state else []
+        "telepass": st.session_state.dati_telepass.to_dict(orient="records") if "dati_telepass" in st.session_state else [],
+        "firma_dipendente": st.session_state.get("firma_dipendente", ""),
+        "firma_approvatore": st.session_state.get("firma_approvatore", "")
     }
     try:
         with open(PATH_BOZZA_LOCALE, "w", encoding="utf-8") as f:
@@ -34,6 +36,10 @@ def carica_bozza_automatica():
                     st.session_state["nome_user"] = dati["nome"]
                 if "cognome" in dati:
                     st.session_state["cognome_user"] = dati["cognome"]
+                if "firma_dipendente" in dati:
+                    st.session_state["firma_dipendente"] = dati["firma_dipendente"]
+                if "firma_approvatore" in dati:
+                    st.session_state["firma_approvatore"] = dati["firma_approvatore"]
                 if "spese" in dati and dati["spese"]:
                     df_spese = pd.DataFrame(dati["spese"])
                     if "Data" in df_spese.columns:
@@ -168,6 +174,8 @@ with col_salva3:
         st.session_state.prospetto_telepass_originale = None
         st.session_state.file_telepass_info = None
         st.session_state.allegati_dkv_list = []
+        st.session_state.firma_dipendente = ""
+        st.session_state.firma_approvatore = ""
         st.rerun()
 
 st.divider()
@@ -405,6 +413,36 @@ if st.session_state.allegati_dkv_list:
                     args=(idx,), 
                     use_container_width=True
                 )
+
+st.divider()
+
+# --- SEZIONE FIRME ---
+st.subheader("✍️ Firme e Approvazione")
+
+col_firma1, col_firma2 = st.columns(2)
+
+with col_firma1:
+    st.markdown("**Firma del Dipendente / Collaboratore**")
+    firma_dip = st.text_input(
+        "Nome e Cognome per Firma Digitale / Sigla Dipendente",
+        value=st.session_state.get("firma_dipendente", f"{st.session_state.get('nome_user', '')} {st.session_state.get('cognome_user', '')}"),
+        key="firma_dipendente_input"
+    )
+    st.session_state["firma_dipendente"] = firma_dip
+    if firma_dip:
+        st.info(f"Signed digitally by: **{firma_dip}** in data {date.today().strftime('%d/%m/%Y')}")
+
+with col_firma2:
+    st.markdown("**Firma per Approvazione / Responsabile**")
+    firma_appr = st.text_input(
+        "Nome e Cognome Responsabile / Coordinatore",
+        value=st.session_state.get("firma_approvatore", ""),
+        key="firma_approvatore_input",
+        placeholder="Es. Coordinatore di Zona / Direzione"
+    )
+    st.session_state["firma_approvatore"] = firma_appr
+    if firma_appr:
+        st.success(f"Approved by: **{firma_appr}** in data {date.today().strftime('%d/%m/%Y')}")
 
 st.divider()
 
