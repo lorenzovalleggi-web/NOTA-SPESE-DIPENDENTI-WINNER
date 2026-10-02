@@ -61,20 +61,29 @@ def carica_bozza_automatica():
 def rimuovi_allegato(indice):
     st.session_state.allegati_dkv_list.pop(indice)
 
-@st.dialog("🔍 Visualizzazione Ingrandita Scontrino")
-def mostra_scontrino_modal(file_obj, file_name):
+@st.dialog("🔍 Visualizzazione Ingrandita")
+def mostra_scontrino_modal(file_obj, file_name, file_bytes=None, mime_type=None):
     st.write(f"**{file_name}**")
-    if file_obj.type.startswith("image"):
-        img = Image.open(file_obj)
+    
+    # Se passato file_obj o byte diretti
+    b_data = file_obj.getvalue() if file_obj is not None else file_bytes
+    m_type = file_obj.type if file_obj is not None else (mime_type or "application/octet-stream")
+
+    if m_type.startswith("image"):
+        if file_obj is not None:
+            img = Image.open(file_obj)
+        else:
+            import io
+            img = Image.open(io.BytesIO(b_data))
         st.image(img, use_container_width=True)
     else:
-        st.info("Questo allegato è un file PDF.")
+        st.info("Questo allegato è un documento PDF / File di dati.")
     
     st.download_button(
         label="💾 Scarica / Apri file",
-        data=file_obj.getvalue(),
+        data=b_data,
         file_name=file_name,
-        mime=file_obj.type,
+        mime=m_type,
         use_container_width=True
     )
 
@@ -188,47 +197,89 @@ with col_salva3:
 
 st.divider()
 
-# --- SEZIONE TELEPASS: CARICAMENTO E PROSPETTO DETTAGLIATO ---
+# --- SEZIONE TELEPASS: CARICAMENTO PROSPETTO ED ANTEPRIMA ---
 st.subheader("🚗 1. Prospetto e Gestione Pedaggi Telepass")
 
 file_telepass = st.file_uploader(
-    "📎 Carica Prospetto / File Telepass (CSV, Excel o PDF)",
-    type=["csv", "xlsx", "xls", "pdf"],
+    "📎 Carica File Prospetto Pedaggi Telepass (CSV, Excel, PDF o Immagine)",
+    type=["csv", "xlsx", "xls", "pdf", "jpg", "jpeg", "png"],
     key="uploader_telepass"
 )
 
 if file_telepass is not None:
     try:
-        if file_telepass.name.endswith('.csv'):
+        fname = file_telepass.name.lower()
+        if fname.endswith('.csv'):
             st.session_state.prospetto_telepass_originale = pd.read_csv(file_telepass)
-            st.session_state.file_telepass_info = {"type": "csv", "name": file_telepass.name}
-        elif file_telepass.name.endswith(('.xlsx', '.xls')):
+            st.session_state.file_telepass_info = {"type": "csv", "name": file_telepass.name, "file_obj": file_telepass}
+        elif fname.endswith(('.xlsx', '.xls')):
             st.session_state.prospetto_telepass_originale = pd.read_excel(file_telepass)
-            st.session_state.file_telepass_info = {"type": "excel", "name": file_telepass.name}
-        elif file_telepass.name.endswith('.pdf'):
+            st.session_state.file_telepass_info = {"type": "excel", "name": file_telepass.name, "file_obj": file_telepass}
+        elif fname.endswith(('.jpg', '.jpeg', '.png')):
+            st.session_state.prospetto_telepass_originale = None
+            st.session_state.file_telepass_info = {
+                "type": "image",
+                "name": file_telepass.name,
+                "file_obj": file_telepass,
+                "bytes": file_telepass.getvalue(),
+                "mime": file_telepass.type
+            }
+        elif fname.endswith('.pdf'):
             st.session_state.prospetto_telepass_originale = None
             st.session_state.file_telepass_info = {
                 "type": "pdf",
                 "name": file_telepass.name,
-                "bytes": file_telepass.getvalue()
+                "file_obj": file_telepass,
+                "bytes": file_telepass.getvalue(),
+                "mime": "application/pdf"
             }
+        st.success(f"File **{file_telepass.name}** caricato correttamente!")
     except Exception as e:
         st.error(f"Errore nella lettura del file Telepass: {e}")
 
-# Visualizzazione SEMPRE ATTIVA del prospetto caricato
-if st.session_state.prospetto_telepass_originale is not None:
-    st.markdown("### 📊 Prospetto Spese Telepass Caricato")
-    st.dataframe(st.session_state.prospetto_telepass_originale, use_container_width=True)
-elif st.session_state.file_telepass_info and st.session_state.file_telepass_info.get("type") == "pdf":
-    st.markdown("### 📄 Documento Telepass PDF Caricato")
+# ANTEPRIMA DEL PROSPETTO TELEPASS CARICATO
+if st.session_state.file_telepass_info is not None:
     info = st.session_state.file_telepass_info
-    st.success(f"File allegato: **{info['name']}**")
-    st.download_button(
-        label="📥 Apri / Scarica PDF Telepass Caricato",
-        data=info["bytes"],
-        file_name=info["name"],
-        mime="application/pdf"
-    )
+    st.markdown("### 🔍 Anteprima Documento Telepass Allegato")
+    
+    col_prev1, col_prev2 = st.columns([1, 2])
+    
+    with col_prev1:
+        with st.container(border=True):
+            if info["type"] == "image":
+                img = Image.open(info["file_obj"])
+                st.image(img, use_container_width=True)
+                st.caption(f"**Immagine:** {info['name']}")
+                
+                if st.button("🔍 Ingrandisci", key="zoom_telepass_img", use_container_width=True):
+                    mostra_scontrino_modal(info["file_obj"], info["name"])
+                    
+                st.download_button(
+                    label="📥 Scarica / Apri",
+                    data=info["bytes"],
+                    file_name=info["name"],
+                    mime=info["mime"],
+                    key="dl_telepass_img",
+                    use_container_width=True
+                )
+            else:
+                st.markdown(f"📄 **File Documento:** `{info['name']}`")
+                st.caption(f"Tipo file: {info['type'].upper()}")
+                
+                if info.get("file_obj") is not None:
+                    st.download_button(
+                        label="📥 Scarica / Apri Documento",
+                        data=info["file_obj"].getvalue(),
+                        file_name=info["name"],
+                        mime=info["file_obj"].type,
+                        key="dl_telepass_doc",
+                        use_container_width=True
+                    )
+
+    with col_prev2:
+        if st.session_state.prospetto_telepass_originale is not None:
+            st.markdown("**Tabella Dati Estratti dal File:**")
+            st.dataframe(st.session_state.prospetto_telepass_originale, use_container_width=True, height=220)
 
 st.markdown("#### 📝 Dettaglio e Totale Spese Telepass")
 
@@ -241,7 +292,7 @@ col_tele_tot1, col_tele_tot2 = st.columns([1, 2])
 with col_tele_tot1:
     st.metric("TOTALE SPESE TELEPASS", f"€ {totale_telepass_calc:.2f}")
 
-# Tabella interattiva per imputazione giorno per giorno o dettaglio
+# Tabella interattiva per imputazione dettaglio pedaggi
 df_telepass_edited = st.data_editor(
     st.session_state.dati_telepass,
     num_rows="dynamic",
@@ -415,7 +466,7 @@ if st.session_state.allegati_dkv_list:
                 )
                 
                 st.button(
-                    "🗑️ Rimuovi", 
+                    "🗑️️ Rimuovi", 
                     key=f"del_{idx}_{file_name}", 
                     on_click=rimuovi_allegato, 
                     args=(idx,), 
