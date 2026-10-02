@@ -1,11 +1,27 @@
 import streamlit as st
 import pandas as pd
 from datetime import date
+import os
 
-st.set_page_config(page_title="Nota Spese Dipendenti", layout="wide")
+# Configurazione della pagina
+st.set_page_config(page_title="Nota Spese - Winner", layout="wide")
 
-st.title("📄 Nota Spese Dipendenti")
+# --- INTESTAZIONE CON LOGO E RAGIONE SOCIALE ---
+col_logo, col_titolo = st.columns([1, 4])
 
+with col_logo:
+    if os.path.exists("logo.jpg"):
+        st.image("logo.jpg", width=200)
+    elif os.path.exists("logo.png"):
+        st.image("logo.png", width=200)
+
+with col_titolo:
+    st.title("📄 Nota Spese Dipendenti")
+    st.caption("Winner Società Cooperativa | Tel: 0766 505 197")
+
+st.divider()
+
+# --- ANAGRAFICA DIPENDENTE ---
 col1, col2, col3 = st.columns(3)
 with col1:
     nome = st.text_input("Nome", "LORENZO")
@@ -16,6 +32,7 @@ with col3:
 
 st.divider()
 
+# --- LISTA COORDINATORI ---
 coordinatori = [
     "",
     "Coordinatore Bruscolini",
@@ -30,6 +47,7 @@ coordinatori = [
     "Coordinatore Stella"
 ]
 
+# --- TABELLA INIZIALE ---
 if "dati_spese" not in st.session_state:
     st.session_state.dati_spese = pd.DataFrame([
         {"Data": date.today(), "Comune": "", "Coordinatore di Zona": "", "Tipologia Ispettore": "PISA", "Km": 0, "Autostrade": 0.0, "Vitto": 0.0, "Varie": 0.0}
@@ -37,6 +55,7 @@ if "dati_spese" not in st.session_state:
 
 st.subheader("Inserisci o modifica le voci di spesa")
 
+# --- TABELLA EDITABILE ---
 df_edit = st.data_editor(
     st.session_state.dati_spese,
     num_rows="dynamic",
@@ -53,6 +72,7 @@ df_edit = st.data_editor(
     }
 )
 
+# --- CALCOLI AUTOMATICI ---
 df_finale = df_edit.copy()
 
 if not df_finale.empty:
