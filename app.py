@@ -54,7 +54,9 @@ def carica_bozza_automatica():
                     df_tel = pd.DataFrame(dati["telepass"])
                     if "Data" in df_tel.columns:
                         df_tel["Data"] = pd.to_datetime(df_tel["Data"]).dt.date
-                    st.session_state.dati_telepass = df_tel
+                    # Mantiene solo le colonne previste
+                    cols_tot = [c for c in ["Data", "Importo (€)", "Categoria"] if c in df_tel.columns]
+                    st.session_state.dati_telepass = df_tel[cols_tot]
         except Exception:
             pass
 
@@ -65,7 +67,6 @@ def rimuovi_allegato(indice):
 def mostra_scontrino_modal(file_obj, file_name, file_bytes=None, mime_type=None):
     st.write(f"**{file_name}**")
     
-    # Se passato file_obj o byte diretti
     b_data = file_obj.getvalue() if file_obj is not None else file_bytes
     m_type = file_obj.type if file_obj is not None else (mime_type or "application/octet-stream")
 
@@ -96,7 +97,7 @@ if "allegati_dkv_list" not in st.session_state:
     st.session_state.allegati_dkv_list = []
 
 if "dati_telepass" not in st.session_state:
-    st.session_state.dati_telepass = pd.DataFrame(columns=["Data", "Tratta / Casello", "Importo (€)", "Categoria"])
+    st.session_state.dati_telepass = pd.DataFrame(columns=["Data", "Importo (€)", "Categoria"])
 
 if "prospetto_telepass_originale" not in st.session_state:
     st.session_state.prospetto_telepass_originale = None
@@ -180,12 +181,12 @@ with col_salva2:
         carica_bozza_automatica()
         st.rerun()
 with col_salva3:
-    if st.button("🗑️ Svuota Tutto", use_container_width=True):
+    if st.button("🗑️️ Svuota Tutto", use_container_width=True):
         if os.path.exists(PATH_BOZZA_LOCALE):
             os.remove(PATH_BOZZA_LOCALE)
         st.session_state.dati_spese_v2 = crea_df_iniziale()
         st.session_state.rifornimenti_dkv = pd.DataFrame([])
-        st.session_state.dati_telepass = pd.DataFrame(columns=["Data", "Tratta / Casello", "Importo (€)", "Categoria"])
+        st.session_state.dati_telepass = pd.DataFrame(columns=["Data", "Importo (€)", "Categoria"])
         st.session_state.prospetto_telepass_originale = None
         st.session_state.file_telepass_info = None
         st.session_state.allegati_dkv_list = []
@@ -292,15 +293,14 @@ col_tele_tot1, col_tele_tot2 = st.columns([1, 2])
 with col_tele_tot1:
     st.metric("TOTALE SPESE TELEPASS", f"€ {totale_telepass_calc:.2f}")
 
-# Tabella interattiva per imputazione dettaglio pedaggi
+# Tabella interattiva per inserimento solo di Data e Importo (€)
 df_telepass_edited = st.data_editor(
-    st.session_state.dati_telepass,
+    st.session_state.dati_telepass[["Data", "Importo (€)", "Categoria"]] if all(c in st.session_state.dati_telepass.columns for c in ["Data", "Importo (€)", "Categoria"]) else st.session_state.dati_telepass,
     num_rows="dynamic",
     use_container_width=True,
     key="editor_telepass",
     column_config={
         "Data": st.column_config.DateColumn("Data Pedaggio", format="DD/MM/YYYY"),
-        "Tratta / Casello": st.column_config.TextColumn("Tratta / Note"),
         "Importo (€)": st.column_config.NumberColumn("Importo (€)", min_value=0.0, format="%.2f €"),
         "Categoria": st.column_config.SelectboxColumn("Categoria Spesa", options=["Cat. A", "Cat. B"])
     }
@@ -466,7 +466,7 @@ if st.session_state.allegati_dkv_list:
                 )
                 
                 st.button(
-                    "🗑️️ Rimuovi", 
+                    "🗑 Rimuovi", 
                     key=f"del_{idx}_{file_name}", 
                     on_click=rimuovi_allegato, 
                     args=(idx,), 
