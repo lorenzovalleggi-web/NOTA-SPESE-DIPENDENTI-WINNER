@@ -4,7 +4,6 @@ from datetime import date
 from PIL import Image
 import os
 import json
-import base64
 
 # Configurazione della pagina
 st.set_page_config(page_title="Nota Spese - Winner", layout="wide")
@@ -47,17 +46,27 @@ def carica_bozza_automatica():
         except Exception:
             pass
 
-# Caricamento dati salvati all'avvio
 if "primo_avvio" not in st.session_state:
     carica_bozza_automatica()
     st.session_state["primo_avvio"] = False
 
-# --- FUNZIONE PER APRIRE IMMAGINE IN SCHEDA BROWSER (EDGE) ---
-def genera_link_apri_esterno(file_obj, file_name):
-    bytes_data = file_obj.getvalue()
-    b64 = base64.b64encode(bytes_data).decode()
-    mime = file_obj.type
-    return f'🌐 Apri in Edge'
+# --- FINISTRA MODALE PER INGRANDIMENTO IMMAGINI ---
+@st.dialog("🔍 Visualizzazione Ingrandita Scontrino")
+def mostra_scontrino_modal(file_obj, file_name):
+    st.subheader(file_name)
+    if file_obj.type.startswith("image"):
+        img = Image.open(file_obj)
+        st.image(img, use_container_width=True)
+    else:
+        st.info("Questo allegato è un file PDF.")
+    
+    st.download_button(
+        label="💾 Apri/Salva su Computer",
+        data=file_obj.getvalue(),
+        file_name=file_name,
+        mime=file_obj.type,
+        use_container_width=True
+    )
 
 # --- INTESTAZIONE CON LOGO ---
 col_logo, col_intestazione = st.columns([1, 3])
@@ -121,7 +130,7 @@ if "rifornimenti_dkv" not in st.session_state:
 if "allegati_dkv_list" not in st.session_state:
     st.session_state.allegati_dkv_list = []
 
-# --- BARRA DI RIPRISTINO/SALVATAGGIO MANUALE ---
+# --- BARRA DI RIPRISTINO/SALVATAGGIO ---
 col_salva1, col_salva2, col_salva3 = st.columns([2, 2, 2])
 with col_salva1:
     if st.button("💾 Salva Dati Correnti", type="primary", use_container_width=True):
@@ -192,9 +201,9 @@ st.session_state.rifornimenti_dkv = df_rifornimenti.copy()
 
 st.divider()
 
-# --- GESTIONE ALLEGATI / SCONTRINI (APERTURA IN EDGE) ---
-st.subheader("🧾 Gestione Allegati / Scontrini (Apertura Esterna in Edge)")
-st.info("Clicca sul pulsante **🌐 Apri in Edge** sotto ogni scontrino per visualizzarlo a schermo intero nel browser.")
+# --- GESTIONE ALLEGATI / SCONTRINI ---
+st.subheader("🧾 Gestione Allegati / Scontrini")
+st.info("Le immagini sono visualizzate in formato compatto. Usa **🔍 Ingrandisci** per il popup a schermo intero o **📥 Salva / Apri** per visualizzarle con l'applicazione del computer.")
 
 nuovi_file = st.file_uploader(
     "📎 Aggiungi Foto/Scontrini (JPG, PNG, PDF)",
@@ -209,30 +218,41 @@ if nuovi_file:
             st.session_state.allegati_dkv_list.append({"name": f.name, "file": f})
 
 if st.session_state.allegati_dkv_list:
-    st.write(f"**Scontrini caricati:** {len(st.session_state.allegati_dkv_list)}")
-    cols_foto = st.columns(5)
+    st.write(f"**Scontrini allegati:** {len(st.session_state.allegati_dkv_list)}")
+    cols_foto = st.columns(4)
     indici_da_rimuovere = []
 
     for idx, item in enumerate(st.session_state.allegati_dkv_list):
-        col_curr = cols_foto[idx % 5]
+        col_curr = cols_foto[idx % 4]
         with col_curr:
             file_obj = item["file"]
             file_name = item["name"]
             
             with st.container(border=True):
-                # Piccola miniatura molto compatta
+                # Anteprima molto piccola e compatta
                 if file_obj.type.startswith("image"):
                     img = Image.open(file_obj)
-                    st.image(img, width=110)
+                    st.image(img, use_container_width=True)
                 else:
-                    st.markdown("📄 **PDF**")
+                    st.markdown("📄 **Allegato PDF**")
 
-                st.caption(file_name[:15] + "..." if len(file_name) > 15 else file_name)
+                st.caption(file_name)
                 
-                # Pulsante per aprire in Edge / Browser
-                link_html = genera_link_apri_esterno(file_obj, file_name)
-                st.markdown(link_html, unsafe_allow_html=True)
+                # Pulsante 1: Ingrandisci nel popup
+                if st.button("🔍 Ingrandisci", key=f"zoom_{idx}_{file_name}", use_container_width=True):
+                    mostra_scontrino_modal(file_obj, file_name)
                 
+                # Pulsante 2: Scarica/Apri esternamente
+                st.download_button(
+                    label="📥 Scarica / Apri",
+                    data=file_obj.getvalue(),
+                    file_name=file_name,
+                    mime=file_obj.type,
+                    key=f"dl_{idx}_{file_name}",
+                    use_container_width=True
+                )
+                
+                # Pulsante 3: Rimuovi
                 if st.button("🗑️ Rimuovi", key=f"del_{idx}_{file_name}", use_container_width=True):
                     indici_da_rimuovere.append(idx)
 
