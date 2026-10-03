@@ -257,11 +257,14 @@ st.subheader(f"📋 1. Voci Spesa Giornaliere - {st.session_state['mese_nota_spe
 # Assicuriamo che il dataframe caricato sia sempre normalizzato
 df_da_mostrare = normalizza_dataframe(st.session_state.dati_spese_v2)
 
+# Chiave dinamica per evitare conflitti di stato con st.data_editor quando cambiano le colonne o il mese
+editor_key = f"editor_{st.session_state['mese_nota_spese'].replace(' ', '_')}"
+
 df_edit = st.data_editor(
     df_da_mostrare,
     num_rows="dynamic",
     use_container_width=True,
-    key="editor_spese_mensili",
+    key=editor_key,
     column_config={
         "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
         "Comune": st.column_config.TextColumn("Comune / Note"),
@@ -272,6 +275,9 @@ df_edit = st.data_editor(
         "Varie (€)": st.column_config.NumberColumn("Varie (€)", min_value=0.0, format="%.2f €", default=0.0),
     }
 )
+
+# Sincronizziamo lo stato con le modifiche correnti
+st.session_state.dati_spese_v2 = df_edit
 
 # Sincronizziamo lo stato con le modifiche correnti
 st.session_state.dati_spese_v2 = df_edit
