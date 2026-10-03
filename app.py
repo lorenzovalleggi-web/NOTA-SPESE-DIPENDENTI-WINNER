@@ -98,7 +98,7 @@ def normalizza_dataframe(df):
     return df
 
 def calcola_somma_sicura(df, nome_colonna):
-    if nome_colonna in df.columns:
+    if df is not None and not df.empty and nome_colonna in df.columns:
         return pd.to_numeric(df[nome_colonna], errors='coerce').fillna(0).sum()
     return 0.0
 
@@ -129,16 +129,29 @@ def salva_bozza_automatica():
             df_temp["Data"] = df_temp["Data"].astype(str)
         spese_dict = df_temp.to_dict(orient="records")
 
-    # Salva anche la firma del dipendente e del responsabile in Base64
+    # Tabella Spese Telepass
+    telepass_dict = []
+    if "dati_telepass" in st.session_state and not st.session_state.dati_telepass.empty:
+        df_tele = st.session_state.dati_telepass.copy()
+        if "Data" in df_tele.columns:
+            df_tele["Data"] = df_tele["Data"].astype(str)
+        telepass_dict = df_tele.to_dict(orient="records")
+
+    # Firme e Telepass file
     firma_dip_b64, firma_dip_type = file_to_base64(st.session_state.get("firma_dip_bytes"))
     firma_resp_b64, firma_resp_type = file_to_base64(st.session_state.get("firma_resp_bytes"))
+    telepass_file_b64, telepass_file_type = file_to_base64(st.session_state.get("telepass_file_bytes"))
 
     dati_da_salvare = {
         "nome": st.session_state.get("nome_user", "LORENZO"),
         "cognome": st.session_state.get("cognome_user", "VALLEGGI"),
         "mese_nota_spese": st.session_state.get("mese_nota_spese", f"{MESI_ANNO[date.today().month - 1]} {date.today().year}"),
         "spese": spese_dict,
+        "telepass_spese": telepass_dict,
         "allegati_info": allegati_serializzabili,
+        "telepass_file_b64": telepass_file_b64,
+        "telepass_file_type": telepass_file_type,
+        "telepass_file_name": st.session_state.get("telepass_file_name", ""),
         "firma_dip_b64": firma_dip_b64,
         "firma_dip_type": firma_dip_type,
         "firma_resp_b64": firma_resp_b64,
@@ -172,6 +185,19 @@ def carica_bozza_automatica():
                         df_spese["Data"] = pd.to_datetime(df_spese["Data"]).dt.date
                     df_spese = normalizza_dataframe(df_spese)
                     st.session_state.dati_spese_v2 = df_spese
+
+                # Ripristina Tabella Telepass
+                if "telepass_spese" in dati and dati["telepass_spese"]:
+                    df_telepass = pd.DataFrame(dati["telepass_spese"])
+                    if "Data" in df_telepass.columns:
+                        df_telepass["Data"] = pd.to_datetime(df_telepass["Data"]).dt.date
+                    st.session_state.dati_telepass = df_telepass
+
+                # Ripristina File Telepass
+                if "telepass_file_b64" in dati and dati["telepass_file_b64"]:
+                    st.session_state["telepass_file_bytes"] = base64_to_bytes(dati["telepass_file_b64"])
+                    st.session_state["telepass_file_type"] = dati.get("telepass_file_type", "image/jpeg")
+                    st.session_state["telepass_file_name"] = dati.get("telepass_file_name", "Telepass")
 
                 # Ripristina Foto Scontrini salvati
                 if "allegati_info" in dati and dati["allegati_info"]:
@@ -260,6 +286,13 @@ def crea_df_iniziale():
         "Varie (€)": 0.0
     }])
 
+def crea_df_telepass_iniziale():
+    return pd.DataFrame([{
+        "Data": date.today(),
+        "Tratta / Descrizione": "Tratta Milano - Bologna",
+        "Importo (€)": 0.0
+    }])
+
 if "primo_avvio" not in st.session_state:
     carica_bozza_automatica()
     st.session_state["primo_avvio"] = False
@@ -271,6 +304,9 @@ if "dati_spese_v2" not in st.session_state:
     st.session_state.dati_spese_v2 = crea_df_iniziale()
 else:
     st.session_state.dati_spese_v2 = normalizza_dataframe(st.session_state.dati_spese_v2)
+
+if "dati_telepass" not in st.session_state:
+    st.session_state.dati_telepass = crea_df_telepass_iniziale()
 
 # --- INTESTAZIONE LOGO ---
 col_logo, col_intestazione = st.columns([1, 3])
@@ -330,7 +366,7 @@ col_salva1, col_salva2, col_salva3 = st.columns([2, 2, 2])
 with col_salva1:
     if st.button("💾 Salva Bozza Mensile", type="primary", use_container_width=True):
         salva_bozza_automatica()
-        st.success(f"Bozza per **{st.session_state['mese_nota_spese']}** salvata (inclusi scontrini e firme)!")
+        st.success(f"Bozza per **{st.session_state['mese_nota_spese']}** salvata (inclusi Telepass, scontrini e firme)!")
 with col_salva2:
     if st.button("🔄 Ripristina Dati Salvati", use_container_width=True):
         carica_bozza_automatica()
@@ -340,7 +376,9 @@ with col_salva3:
         if os.path.exists(PATH_BOZZA_LOCALE):
             os.remove(PATH_BOZZA_LOCALE)
         st.session_state.dati_spese_v2 = crea_df_iniziale()
+        st.session_state.dati_telepass = crea_df_telepass_iniziale()
         st.session_state.allegati_dkv_list = []
+        st.session_state.pop("telepass_file_bytes", None)
         st.session_state.pop("firma_dip_bytes", None)
         st.session_state.pop("firma_resp_bytes", None)
         st.session_state.note_finali_user = ""
@@ -387,8 +425,76 @@ c_tot4.metric("Totale Varie", f"€ {varie_totale:.2f}")
 
 st.divider()
 
+# --- SEZIONE TELEPASS ---
+st.subheader(f"🚗 2. Gestione Spese Telepass - {st.session_state['mese_nota_spese']}")
+
+col_tele1, col_tele2 = st.columns([1, 2])
+
+with col_tele1:
+    with st.container(border=True):
+        st.markdown("#### 📎 Allega Foto / PDF Spese Telepass")
+        
+        file_telepass = st.file_uploader(
+            "Carica foto o PDF del Telepass",
+            type=["jpg", "jpeg", "png", "pdf"],
+            key=f"uploader_telepass_{st.session_state['mese_nota_spese'].replace(' ', '_')}"
+        )
+        
+        if file_telepass is not None:
+            if file_telepass.type.startswith("image"):
+                bytes_t, type_t = ridimensiona_immagine(file_telepass)
+            else:
+                bytes_t = file_telepass.getvalue()
+                type_t = file_telepass.type
+                
+            st.session_state["telepass_file_bytes"] = bytes_t
+            st.session_state["telepass_file_type"] = type_t
+            st.session_state["telepass_file_name"] = file_telepass.name
+            salva_bozza_automatica()
+            st.success("✅ File Telepass salvato!")
+
+        if st.session_state.get("telepass_file_bytes"):
+            t_fname = st.session_state.get("telepass_file_name", "Allegato_Telepass")
+            mostra_anteprima_scontrino(
+                st.session_state["telepass_file_bytes"],
+                t_fname,
+                height=180,
+                m_type_override=st.session_state.get("telepass_file_type")
+            )
+            if st.button("🔍 Ingrandisci Telepass", key="zoom_telepass", use_container_width=True):
+                mostra_scontrino_modal(
+                    st.session_state["telepass_file_bytes"],
+                    t_fname,
+                    m_type_override=st.session_state.get("telepass_file_type")
+                )
+
+with col_tele2:
+    with st.container(border=True):
+        st.markdown("#### 💳 Spese Mensili Telepass")
+        
+        editor_telepass_key = f"editor_telepass_{st.session_state['mese_nota_spese'].replace(' ', '_')}"
+        
+        df_tele_edit = st.data_editor(
+            st.session_state.dati_telepass,
+            num_rows="dynamic",
+            use_container_width=True,
+            key=editor_telepass_key,
+            column_config={
+                "Data": st.column_config.DateColumn("Data Spesa", format="DD/MM/YYYY"),
+                "Tratta / Descrizione": st.column_config.TextColumn("Tratta / Descrizione Spesa"),
+                "Importo (€)": st.column_config.NumberColumn("Importo (€)", min_value=0.0, format="%.2f €", default=0.0)
+            }
+        )
+        
+        st.session_state.dati_telepass = df_tele_edit
+        
+        totale_telepass = calcola_somma_sicura(df_tele_edit, "Importo (€)")
+        st.metric("🔴 TOTALE SPESE TELEPASS", f"€ {totale_telepass:.2f}")
+
+st.divider()
+
 # --- SINTESI REFERENTI ---
-st.subheader("📊 2. Sintesi Referenti e Coordinatori")
+st.subheader("📊 3. Sintesi Referenti e Coordinatori")
 
 if not df_edit.empty:
     df_pivot = df_edit.copy()
@@ -449,7 +555,7 @@ if not df_edit.empty:
 st.divider()
 
 # --- SEZIONE ALLEGATI E SCONTRINI ---
-st.subheader(f"🧾 3. Allegati e Scontrini - {st.session_state['mese_nota_spese']}")
+st.subheader(f"🧾 4. Allegati e Scontrini - {st.session_state['mese_nota_spese']}")
 
 with st.container(border=True):
     st.markdown("#### ➕ Carica Scontrino per questo Mese")
@@ -494,7 +600,7 @@ with st.container(border=True):
 
 # --- MOSTRA ELENCO SCONTRINI ---
 if st.session_state.allegati_dkv_list:
-    st.markdown(f"### 🏴‍☠️️ Elenco Scontrini per {st.session_state['mese_nota_spese']}")
+    st.markdown(f"### 🏴‍☠ Elenco Scontrini per {st.session_state['mese_nota_spese']}")
     
     elementi_mese = [
         (idx, item) for idx, item in enumerate(st.session_state.allegati_dkv_list)
@@ -544,7 +650,7 @@ if st.session_state.allegati_dkv_list:
 st.divider()
 
 # --- RIEPILOGO FINALE ---
-totale_generale_mese = totale_rimborso_km + autostrada_totale + vitto_totale + varie_totale
+totale_generale_mese = totale_rimborso_km + autostrada_totale + vitto_totale + varie_totale + totale_telepass
 
 st.subheader(f"📊 RIEPILOGO FINALE MENSILE - {st.session_state['mese_nota_spese']}")
 st.metric(f"TOTALE COMPLESSIVO SPESE DA RIMBORSARE ({st.session_state['mese_nota_spese']})", f"€ {totale_generale_mese:.2f}")
