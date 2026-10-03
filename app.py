@@ -103,6 +103,12 @@ def elimina_scontrino(index_to_remove):
         st.session_state.allegati_dkv_list.pop(index_to_remove)
         salva_bozza_automatica()
 
+def elimina_telepass():
+    st.session_state.pop("telepass_file_bytes", None)
+    st.session_state.pop("telepass_file_type", None)
+    st.session_state.pop("telepass_file_name", None)
+    salva_bozza_automatica()
+
 # --- FUNZIONI DI SALVATAGGIO E RIPRISTINO BOZZA COMPLETA ---
 def salva_bozza_automatica():
     allegati_serializzabili = []
@@ -378,7 +384,6 @@ st.divider()
 # --- TABELLA VOCI DI SPESA ---
 st.subheader(f"📋 1. Voci Spesa Giornaliere - {st.session_state['mese_nota_spese']}")
 
-# FIX IMPERFEZIONE: Usiamo st.data_editor mantenendo sincronizzata la versione nel session_state
 df_edit = st.data_editor(
     st.session_state.dati_spese_v2,
     num_rows="dynamic",
@@ -448,11 +453,21 @@ with col_tele1:
                 height=180,
                 m_type_override=st.session_state.get("telepass_file_type")
             )
-            if st.button("🔍 Ingrandisci Telepass", key="zoom_telepass", use_container_width=True):
-                mostra_scontrino_modal(
-                    st.session_state["telepass_file_bytes"],
-                    t_fname,
-                    m_type_override=st.session_state.get("telepass_file_type")
+            
+            col_t_act1, col_t_act2 = st.columns(2)
+            with col_t_act1:
+                if st.button("🔍 Ingrandisci", key="zoom_telepass", use_container_width=True):
+                    mostra_scontrino_modal(
+                        st.session_state["telepass_file_bytes"],
+                        t_fname,
+                        m_type_override=st.session_state.get("telepass_file_type")
+                    )
+            with col_t_act2:
+                st.button(
+                    "🗑 Elimina File",
+                    key="del_telepass_file",
+                    on_click=elimina_telepass,
+                    use_container_width=True
                 )
 
 with col_tele2:
