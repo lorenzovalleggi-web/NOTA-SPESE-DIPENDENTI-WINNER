@@ -5,6 +5,7 @@ from PIL import Image
 import os
 import json
 import base64
+import io
 
 # 1. Configurazione della pagina Streamlit
 st.set_page_config(page_title="Nota Spese Mensile - Winner", layout="wide")
@@ -23,6 +24,21 @@ COORDINATORI = [
     "Coordinatore Ceniti", "Coordinatore Ledda", "Coordinatore Mazzoleni",
     "Coordinatore Migliaccio", "Coordinatore Piccinetti", "Coordinatore Vendemini", "Coordinatore Stella"
 ]
+
+# --- FUNZIONE PER COMPRIMERE E RIDIMENSIONARE LE IMMAGINI CARICATE ---
+def ridimensiona_immagine(file_uploaded, max_size=(800, 800), qualita=80):
+    try:
+        img = Image.open(file_uploaded)
+        img = img.convert("RGB") # Conversione per salvare in JPEG ed eliminare l'alpha channel se PNG
+        img.thumbnail(max_size, Image.Resampling.LANCZOS)
+        
+        buffer = io.BytesIO()
+        img.save(buffer, format="JPEG", quality=qualita, optimize=True)
+        buffer.seek(0)
+        return buffer, "image/jpeg"
+    except Exception:
+        file_uploaded.seek(0)
+        return file_uploaded, file_uploaded.type
 
 # --- FUNZIONE PER NORMALIZZARE E RINOMINARE LE COLONNE VECCHIE ---
 def normalizza_dataframe(df):
@@ -116,14 +132,10 @@ def rimuovi_allegato(indice):
 # --- VISUALIZZATORE ANTEPRIMA MULTI-FORMATO ---
 def mostra_anteprima_scontrino(file_obj, file_name, file_bytes=None, mime_type=None, height=220):
     b_data = file_obj.getvalue() if file_obj is not None else file_bytes
-    m_type = file_obj.type if file_obj is not None else (mime_type or "application/octet-stream")
+    m_type = file_obj.type if hasattr(file_obj, 'type') else (mime_type or "application/octet-stream")
 
     if m_type.startswith("image"):
-        if file_obj is not None:
-            img = Image.open(file_obj)
-        else:
-            import io
-            img = Image.open(io.BytesIO(b_data))
+        img = Image.open(io.BytesIO(b_data))
         st.image(img, use_container_width=True)
     elif m_type == "application/pdf":
         try:
@@ -141,7 +153,7 @@ def mostra_scontrino_modal(file_obj, file_name, file_bytes=None, mime_type=None)
     mostra_anteprima_scontrino(file_obj, file_name, file_bytes, mime_type, height=500)
     
     b_data = file_obj.getvalue() if file_obj is not None else file_bytes
-    m_type = file_obj.type if file_obj is not None else (mime_type or "application/octet-stream")
+    m_type = file_obj.type if hasattr(file_obj, 'type') else (mime_type or "application/octet-stream")
     
     st.download_button(
         label="💾 Scarica File Originale",
@@ -296,7 +308,6 @@ st.caption("Resoconto aggregato per Coordinatore (Km, Rimborso Km, Autostrade, V
 if not df_edit.empty:
     df_pivot = df_edit.copy()
     
-    # Conversione numerica sicura delle colonne
     df_pivot["Km"] = pd.to_numeric(df_pivot["Km"], errors='coerce').fillna(0)
     df_pivot["Tot. Km/€"] = df_pivot["Km"] * costo_km_a
     df_pivot["Autostrade"] = pd.to_numeric(df_pivot["Autostrada (€)"], errors='coerce').fillna(0)
@@ -304,7 +315,6 @@ if not df_edit.empty:
     df_pivot["Varie"] = pd.to_numeric(df_pivot["Varie (€)"], errors='coerce').fillna(0)
     df_pivot["Totale €"] = df_pivot["Tot. Km/€"] + df_pivot["Autostrade"] + df_pivot["Vitto"] + df_pivot["Varie"]
     
-    # Raggruppamento per Coordinatore
     df_grouped = df_pivot.groupby("Coordinatore", as_index=False).agg({
         "Km": "sum",
         "Tot. Km/€": "sum",
@@ -314,7 +324,6 @@ if not df_edit.empty:
         "Totale €": "sum"
     })
     
-    # Rinomina della prima colonna come nell'immagine Excel
     df_grouped = df_grouped.rename(columns={
         "Coordinatore": "Etichette di riga",
         "Km": "Somma di Km",
@@ -325,7 +334,6 @@ if not df_edit.empty:
         "Totale €": "Somma di Totale €"
     })
     
-    # Aggiunta riga Totale Complessivo
     riga_totale = pd.DataFrame([{
         "Etichette di riga": "Totale complessivo",
         "Somma di Km": df_grouped["Somma di Km"].sum(),
@@ -355,7 +363,7 @@ if not df_edit.empty:
 
 st.divider()
 
-# --- GESTIONE ALLEGATI E SCONTRINI ---
+# --- GESTIONE ALLEGATI E SCONTRINI CON RIDIMENSIONAMENTO AUTOMATICO ---
 st.subheader(f"🧾 3. Allegati e Scontrini - {st.session_state['mese_nota_spese']}")
 
 with st.container(border=True):
@@ -384,7 +392,7 @@ with st.container(border=True):
         importo_scontrino_sel = st.number_input("Importo (€)", min_value=0.0, step=0.50, format="%.2f", key="importo_scontrino_uploader")
 
     nuovi_file = st.file_uploader(
-        "📎 Seleziona Scontrini (JPG, PNG, PDF)",
+        "📎 Seleziona Scontrini (JPG, PNG, PDF) - *Verranno ottimizzati automaticamente*",
         type=["jpg", "jpeg", "png", "pdf"],
         accept_multiple_files=True,
         key="nuovi_scontrini_uploader"
@@ -393,9 +401,16 @@ with st.container(border=True):
     if nuovi_file:
         for f_item in nuovi_file:
             if f_item.name not in [x["name"] for x in st.session_state.allegati_dkv_list]:
+                # Se è un'immagine, la ridimensiona e comprime subito per alleggerire la memoria
+                if f_item.type.startswith("image"):
+                    file_processato, m_type = ridimensiona_immagine(f_item)
+                    file_processato.type = m_type
+                else:
+                    file_processato = f_item
+                    
                 st.session_state.allegati_dkv_list.append({
                     "name": f_item.name,
-                    "file": f_item,
+                    "file": file_processato,
                     "categoria": tipo_spesa_sel,
                     "importo": float(importo_scontrino_sel),
                     "data": data_scontrino_sel,
@@ -460,7 +475,11 @@ with col_firma_dip:
         
         if file_firma is not None:
             st.success("✅ Firma caricata correttamente!")
-            mostra_anteprima_scontrino(file_firma, file_firma.name, height=120)
+            if file_firma.type.startswith("image"):
+                file_firma_proc, _ = ridimensiona_immagine(file_firma, max_size=(400, 200))
+                mostra_anteprima_scontrino(file_firma_proc, file_firma.name, height=120)
+            else:
+                mostra_anteprima_scontrino(file_firma, file_firma.name, height=120)
             
         data_firma_dip = st.date_input("Data Firma Dipendente", value=date.today(), key="data_firma_dip_input")
 
@@ -483,7 +502,11 @@ with col_firma_az:
         
         if file_firma_resp is not None:
             st.success("✅ Firma Responsabile caricata!")
-            mostra_anteprima_scontrino(file_firma_resp, file_firma_resp.name, height=120)
+            if file_firma_resp.type.startswith("image"):
+                file_resp_proc, _ = ridimensiona_immagine(file_firma_resp, max_size=(400, 200))
+                mostra_anteprima_scontrino(file_resp_proc, file_firma_resp.name, height=120)
+            else:
+                mostra_anteprima_scontrino(file_firma_resp, file_firma_resp.name, height=120)
             
         st.date_input("Data Approvazione", value=date.today(), key="data_approvazione_input")
 
