@@ -16,6 +16,9 @@ MESI_ANNO = [
     "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"
 ]
 
+# Generazione dinamica lista Anni a partire dal 2025 fino a 2 anni nel futuro
+ANNI_DISPONIBILI = [str(a) for a in range(2025, date.today().year + 3)]
+
 COORDINATORI = [
     "", "Coordinatore Bruscolini", "Coordinatore Calzetta", "Coordinatore Casaburi",
     "Coordinatore Ceniti", "Coordinatore Ledda", "Coordinatore Mazzoleni",
@@ -208,9 +211,12 @@ with col_a2:
     st.session_state["cognome_user"] = cognome
 
 with col_a3:
-    anno_corrente = date.today().year
-    opzioni_mesi_anno = [f"{m} {anno_corrente}" for m in MESI_ANNO] + [f"{m} {anno_corrente-1}" for m in MESI_ANNO]
-    idx_default = date.today().month - 1
+    # Generazione elenco Mesi + Anni a partire dal 2025
+    opzioni_mesi_anno = [f"{m} {anno}" for anno in ANNI_DISPONIBILI for m in MESI_ANNO]
+    
+    # Valore di default basato sulla data corrente o salvata
+    default_mese_anno = f"{MESI_ANNO[date.today().month - 1]} {date.today().year}"
+    idx_default = opzioni_mesi_anno.index(default_mese_anno) if default_mese_anno in opzioni_mesi_anno else 0
     
     mese_selezionato = st.selectbox(
         "📅 MESE DI RIFERIMENTO NOTA SPESE",
