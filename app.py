@@ -400,14 +400,17 @@ df_edit = st.data_editor(
     }
 )
 
-st.session_state.dati_spese_v2 = df_edit
+# Sincronizzazione immediata e salvataggio automatico se il DataFrame è cambiato
+if not df_edit.equals(st.session_state.dati_spese_v2):
+    st.session_state.dati_spese_v2 = normalizza_dataframe(df_edit)
+    salva_bozza_automatica()
 
 # --- TOTALI IN TEMPO REALE ---
-km_totali = calcola_somma_sicura(df_edit, "Km")
+km_totali = calcola_somma_sicura(st.session_state.dati_spese_v2, "Km")
 totale_rimborso_km = km_totali * costo_km_a
-autostrada_totale = calcola_somma_sicura(df_edit, "Autostrada (€)")
-vitto_totale = calcola_somma_sicura(df_edit, "Vitto (€)")
-varie_totale = calcola_somma_sicura(df_edit, "Varie (€)")
+autostrada_totale = calcola_somma_sicura(st.session_state.dati_spese_v2, "Autostrada (€)")
+vitto_totale = calcola_somma_sicura(st.session_state.dati_spese_v2, "Vitto (€)")
+varie_totale = calcola_somma_sicura(st.session_state.dati_spese_v2, "Varie (€)")
 
 c_tot1, c_tot2, c_tot3, c_tot4 = st.columns(4)
 c_tot1.metric("Totale Km", f"{km_totali:.0f} Km", f"€ {totale_rimborso_km:.2f}")
@@ -486,9 +489,11 @@ with col_tele2:
             }
         )
         
-        st.session_state.dati_telepass = df_tele_edit
+        if not df_tele_edit.equals(st.session_state.dati_telepass):
+            st.session_state.dati_telepass = df_tele_edit
+            salva_bozza_automatica()
         
-        totale_telepass = calcola_somma_sicura(df_tele_edit, "Importo (€)")
+        totale_telepass = calcola_somma_sicura(st.session_state.dati_telepass, "Importo (€)")
         st.metric("🔴 TOTALE SPESE TELEPASS", f"€ {totale_telepass:.2f}")
 
 st.divider()
@@ -496,8 +501,8 @@ st.divider()
 # --- SINTESI REFERENTI ---
 st.subheader("📊 3. Sintesi Referenti e Coordinatori")
 
-if df_edit is not None and not df_edit.empty:
-    df_pivot = df_edit.copy()
+if st.session_state.dati_spese_v2 is not None and not st.session_state.dati_spese_v2.empty:
+    df_pivot = st.session_state.dati_spese_v2.copy()
     
     df_pivot["Km"] = pd.to_numeric(df_pivot["Km"], errors='coerce').fillna(0)
     df_pivot["Tot. Km/€"] = df_pivot["Km"] * costo_km_a
@@ -554,25 +559,29 @@ if df_edit is not None and not df_edit.empty:
 
 st.divider()
 
-# --- SEZIONE ALLEGATI E SCONTRINI ---
-st.subheader(f"🧾 4. Allegati e Scontrini - {st.session_state['mese_nota_spese']}")
+# --- SEZIONE ALLEGATI E SCONTRINI AUTOSTRADA / VITTO / VARIE ---
+st.subheader(f"🧾 4. Allegati e Scontrini (Autostrada, Vitto, Varie) - {st.session_state['mese_nota_spese']}")
 
 with st.container(border=True):
-    st.markdown("#### ➕ Carica Scontrino per questo Mese")
+    st.markdown("#### ➕ Carica Nuovo Scontrino o Ricevuta Autostradale")
     
     col_up1, col_up2, col_up3, col_up4 = st.columns([2, 2, 2, 2])
     
     with col_up1:
-        tipo_spesa_sel = st.selectbox("Categoria Spesa", options=["Autostrada", "Vitto", "Varie"], key="tipo_spesa_uploader")
+        tipo_spesa_sel = st.selectbox(
+            "Categoria Spesa", 
+            options=["Autostrada", "Vitto", "Varie"], 
+            key="tipo_spesa_uploader"
+        )
     with col_up2:
-        mese_rif_scontrino = st.text_input("Mese di Riferimento", value=st.session_state["mese_nota_spese"], disabled=True)
+        st.text_input("Mese di Riferimento", value=st.session_state["mese_nota_spese"], disabled=True)
     with col_up3:
         data_scontrino_sel = st.date_input("Data Scontrino", value=date.today(), key="data_scontrino_uploader")
     with col_up4:
         importo_scontrino_sel = st.number_input("Importo (€)", min_value=0.0, value=0.0, step=0.50, format="%.2f", key="importo_scontrino_uploader")
 
     nuovi_file = st.file_uploader(
-        "📎 Seleziona Scontrini (JPG, PNG, PDF)",
+        "📎 Seleziona Foto Scontrino Autostrada / Ricevuta (JPG, PNG, PDF)",
         type=["jpg", "jpeg", "png", "pdf"],
         accept_multiple_files=True,
         key="nuovi_scontrini_uploader"
@@ -597,10 +606,11 @@ with st.container(border=True):
                     "mese_riferimento": st.session_state["mese_nota_spese"]
                 })
         salva_bozza_automatica()
+        st.rerun()
 
-# --- MOSTRA ELENCO SCONTRINI ---
+# --- ELENCO E VISUALIZZAZIONE SCONTRINI CARICATI ---
 if st.session_state.allegati_dkv_list:
-    st.markdown(f"### 🏴‍☠ Elenco Scontrini per {st.session_state['mese_nota_spese']}")
+    st.markdown(f"### 📋 Elenco Scontrini / Ricevute per {st.session_state['mese_nota_spese']}")
     
     elementi_mese = [
         (idx, item) for idx, item in enumerate(st.session_state.allegati_dkv_list)
@@ -728,7 +738,7 @@ st.divider()
 # --- DOWNLOAD CSV ---
 st.download_button(
     label=f"📥 Scarica Nota Spese {st.session_state['mese_nota_spese']} (CSV)",
-    data=df_edit.to_csv(index=False).encode('utf-8'),
+    data=st.session_state.dati_spese_v2.to_csv(index=False).encode('utf-8'),
     file_name=f"Nota_Spese_{cognome}_{st.session_state['mese_nota_spese'].replace(' ', '_')}.csv",
     mime="text/csv",
     use_container_width=True
