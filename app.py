@@ -76,18 +76,14 @@ def ridimensiona_immagine(file_uploaded, max_size=(600, 600), qualita=75):
 # --- FUNZIONE PER NORMALIZZARE LE COLONNE ---
 def normalizza_dataframe(df):
     if df is None or df.empty:
-        return df
+        return pd.DataFrame(columns=["Data", "Comune", "Coordinatore", "Km", "Autostrada (€)", "Vitto (€)", "Varie (€)"])
     
     mappa_colonne = {
         "Km_A": "Km",
         "Autostrade_A": "Autostrada (€)",
         "Autostrada_A": "Autostrada (€)",
         "Vitto_A": "Vitto (€)",
-        "Varie_A": "Varie (€)",
-        "Km": "Km",
-        "Autostrada (€)": "Autostrada (€)",
-        "Vitto (€)": "Vitto (€)",
-        "Varie (€)": "Varie (€)"
+        "Varie_A": "Varie (€)"
     }
     
     df = df.rename(columns=mappa_colonne)
@@ -129,7 +125,6 @@ def salva_bozza_automatica():
             df_temp["Data"] = df_temp["Data"].astype(str)
         spese_dict = df_temp.to_dict(orient="records")
 
-    # Tabella Spese Telepass
     telepass_dict = []
     if "dati_telepass" in st.session_state and not st.session_state.dati_telepass.empty:
         df_tele = st.session_state.dati_telepass.copy()
@@ -137,7 +132,6 @@ def salva_bozza_automatica():
             df_tele["Data"] = df_tele["Data"].astype(str)
         telepass_dict = df_tele.to_dict(orient="records")
 
-    # Firme e Telepass file
     firma_dip_b64, firma_dip_type = file_to_base64(st.session_state.get("firma_dip_bytes"))
     firma_resp_b64, firma_resp_type = file_to_base64(st.session_state.get("firma_resp_bytes"))
     telepass_file_b64, telepass_file_type = file_to_base64(st.session_state.get("telepass_file_bytes"))
@@ -178,7 +172,6 @@ def carica_bozza_automatica():
                 if "note_finali" in dati:
                     st.session_state["note_finali_user"] = dati["note_finali"]
                 
-                # Ripristina Tabella Spese
                 if "spese" in dati and dati["spese"]:
                     df_spese = pd.DataFrame(dati["spese"])
                     if "Data" in df_spese.columns:
@@ -186,20 +179,17 @@ def carica_bozza_automatica():
                     df_spese = normalizza_dataframe(df_spese)
                     st.session_state.dati_spese_v2 = df_spese
 
-                # Ripristina Tabella Telepass
                 if "telepass_spese" in dati and dati["telepass_spese"]:
                     df_telepass = pd.DataFrame(dati["telepass_spese"])
                     if "Data" in df_telepass.columns:
                         df_telepass["Data"] = pd.to_datetime(df_telepass["Data"]).dt.date
                     st.session_state.dati_telepass = df_telepass
 
-                # Ripristina File Telepass
                 if "telepass_file_b64" in dati and dati["telepass_file_b64"]:
                     st.session_state["telepass_file_bytes"] = base64_to_bytes(dati["telepass_file_b64"])
                     st.session_state["telepass_file_type"] = dati.get("telepass_file_type", "image/jpeg")
                     st.session_state["telepass_file_name"] = dati.get("telepass_file_name", "Telepass")
 
-                # Ripristina Foto Scontrini salvati
                 if "allegati_info" in dati and dati["allegati_info"]:
                     st.session_state.allegati_dkv_list = []
                     for item in dati["allegati_info"]:
@@ -215,7 +205,6 @@ def carica_bozza_automatica():
                                 "mese_riferimento": item.get("mese_riferimento", "")
                             })
 
-                # Ripristina Firme
                 if "firma_dip_b64" in dati and dati["firma_dip_b64"]:
                     st.session_state["firma_dip_bytes"] = base64_to_bytes(dati["firma_dip_b64"])
                     st.session_state["firma_dip_type"] = dati.get("firma_dip_type", "image/png")
@@ -274,7 +263,7 @@ def mostra_scontrino_modal(file_obj, file_name, m_type_override=None):
         use_container_width=True
     )
 
-# --- INIZIALIZZAZIONE ---
+# --- INIZIALIZZAZIONE DATAFRAME PERMANENTI ---
 def crea_df_iniziale():
     return pd.DataFrame([{
         "Data": date.today(), 
@@ -300,12 +289,12 @@ if "primo_avvio" not in st.session_state:
 if "allegati_dkv_list" not in st.session_state:
     st.session_state.allegati_dkv_list = []
 
-if "dati_spese_v2" not in st.session_state:
+if "dati_spese_v2" not in st.session_state or st.session_state.dati_spese_v2 is None:
     st.session_state.dati_spese_v2 = crea_df_iniziale()
 else:
     st.session_state.dati_spese_v2 = normalizza_dataframe(st.session_state.dati_spese_v2)
 
-if "dati_telepass" not in st.session_state:
+if "dati_telepass" not in st.session_state or st.session_state.dati_telepass is None:
     st.session_state.dati_telepass = crea_df_telepass_iniziale()
 
 # --- INTESTAZIONE LOGO ---
@@ -366,7 +355,7 @@ col_salva1, col_salva2, col_salva3 = st.columns([2, 2, 2])
 with col_salva1:
     if st.button("💾 Salva Bozza Mensile", type="primary", use_container_width=True):
         salva_bozza_automatica()
-        st.success(f"Bozza per **{st.session_state['mese_nota_spese']}** salvata (inclusi Telepass, scontrini e firme)!")
+        st.success(f"Bozza per **{st.session_state['mese_nota_spese']}** salvata!")
 with col_salva2:
     if st.button("🔄 Ripristina Dati Salvati", use_container_width=True):
         carica_bozza_automatica()
@@ -389,14 +378,12 @@ st.divider()
 # --- TABELLA VOCI DI SPESA ---
 st.subheader(f"📋 1. Voci Spesa Giornaliere - {st.session_state['mese_nota_spese']}")
 
-df_da_mostrare = normalizza_dataframe(st.session_state.dati_spese_v2)
-editor_key = f"editor_{st.session_state['mese_nota_spese'].replace(' ', '_')}"
-
+# FIX IMPERFEZIONE: Usiamo st.data_editor mantenendo sincronizzata la versione nel session_state
 df_edit = st.data_editor(
-    df_da_mostrare,
+    st.session_state.dati_spese_v2,
     num_rows="dynamic",
     use_container_width=True,
-    key=editor_key,
+    key="editor_spese_stabile",
     column_config={
         "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
         "Comune": st.column_config.TextColumn("Comune / Note"),
@@ -437,7 +424,7 @@ with col_tele1:
         file_telepass = st.file_uploader(
             "Carica foto o PDF del Telepass",
             type=["jpg", "jpeg", "png", "pdf"],
-            key=f"uploader_telepass_{st.session_state['mese_nota_spese'].replace(' ', '_')}"
+            key="uploader_telepass_stabile"
         )
         
         if file_telepass is not None:
@@ -472,13 +459,11 @@ with col_tele2:
     with st.container(border=True):
         st.markdown("#### 💳 Spese Mensili Telepass")
         
-        editor_telepass_key = f"editor_telepass_{st.session_state['mese_nota_spese'].replace(' ', '_')}"
-        
         df_tele_edit = st.data_editor(
             st.session_state.dati_telepass,
             num_rows="dynamic",
             use_container_width=True,
-            key=editor_telepass_key,
+            key="editor_telepass_stabile",
             column_config={
                 "Data": st.column_config.DateColumn("Data Spesa", format="DD/MM/YYYY"),
                 "Tratta / Descrizione": st.column_config.TextColumn("Tratta / Descrizione Spesa"),
@@ -496,7 +481,7 @@ st.divider()
 # --- SINTESI REFERENTI ---
 st.subheader("📊 3. Sintesi Referenti e Coordinatori")
 
-if not df_edit.empty:
+if df_edit is not None and not df_edit.empty:
     df_pivot = df_edit.copy()
     
     df_pivot["Km"] = pd.to_numeric(df_pivot["Km"], errors='coerce').fillna(0)
@@ -669,7 +654,7 @@ with col_firma_dip:
         file_firma = st.file_uploader(
             "📁 Carica File Firma Dipendente",
             type=["png", "jpg", "jpeg", "pdf"],
-            key=f"uploader_firma_dip_{st.session_state['mese_nota_spese'].replace(' ', '_')}"
+            key="uploader_firma_dip_stabile"
         )
         
         if file_firma is not None:
@@ -701,7 +686,7 @@ with col_firma_az:
         file_firma_resp = st.file_uploader(
             "📁 Carica File Firma Responsabile (opzionale)",
             type=["png", "jpg", "jpeg", "pdf"],
-            key=f"uploader_firma_resp_{st.session_state['mese_nota_spese'].replace(' ', '_')}"
+            key="uploader_firma_resp_stabile"
         )
         
         if file_firma_resp is not None:
