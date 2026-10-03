@@ -22,6 +22,33 @@ COORDINATORI = [
     "Coordinatore Migliaccio", "Coordinatore Piccinetti", "Coordinatore Vendemini", "Coordinatore Stella"
 ]
 
+# --- FUNZIONE PER NORMALIZZARE E RINOMINARE LE COLONNE VECCHIE (_A / _B) ---
+def normalizza_dataframe(df):
+    if df is None or df.empty:
+        return df
+    
+    # Mappa di rinomina per convertire automaticamente i vecchi nomi
+    mappa_colonne = {
+        "Km_A": "Km",
+        "Autostrade_A": "Autostrada (€)",
+        "Autostrada_A": "Autostrada (€)",
+        "Vitto_A": "Vitto (€)",
+        "Varie_A": "Varie (€)",
+        "Km": "Km",
+        "Autostrada (€)": "Autostrada (€)",
+        "Vitto (€)": "Vitto (€)",
+        "Varie (€)": "Varie (€)"
+    }
+    
+    df = df.rename(columns=mappa_colonne)
+    
+    # Rimuoviamo eventuali vecchie colonne B residue
+    cols_da_rimuovere = [c for c in df.columns if c.endswith("_B") or " B" in c]
+    if cols_da_rimuovere:
+        df = df.drop(columns=cols_da_rimuovere, errors="ignore")
+        
+    return df
+
 # --- FUNZIONE SICURA PER CALCOLARE LA SOMMA DELLE COLONNE ---
 def calcola_somma_sicura(df, nome_colonna):
     if nome_colonna in df.columns:
@@ -42,12 +69,9 @@ def salva_bozza_automatica():
 
     spese_dict = []
     if "dati_spese_v2" in st.session_state and not st.session_state.dati_spese_v2.empty:
-        df_temp = st.session_state.dati_spese_v2.copy()
+        df_temp = normalizza_dataframe(st.session_state.dati_spese_v2.copy())
         if "Data" in df_temp.columns:
             df_temp["Data"] = df_temp["Data"].astype(str)
-        cols_b = [c for c in df_temp.columns if "B" in c]
-        if cols_b:
-            df_temp = df_temp.drop(columns=cols_b, errors="ignore")
         spese_dict = df_temp.to_dict(orient="records")
 
     dati_da_salvare = {
@@ -78,9 +102,7 @@ def carica_bozza_automatica():
                     df_spese = pd.DataFrame(dati["spese"])
                     if "Data" in df_spese.columns:
                         df_spese["Data"] = pd.to_datetime(df_spese["Data"]).dt.date
-                    cols_b = [c for c in df_spese.columns if "_B" in c or " B" in c]
-                    if cols_b:
-                        df_spese = df_spese.drop(columns=cols_b, errors="ignore")
+                    df_spese = normalizza_dataframe(df_spese)
                     st.session_state.dati_spese_v2 = df_spese
         except Exception:
             pass
@@ -147,6 +169,8 @@ if "allegati_dkv_list" not in st.session_state:
 
 if "dati_spese_v2" not in st.session_state:
     st.session_state.dati_spese_v2 = crea_df_iniziale()
+else:
+    st.session_state.dati_spese_v2 = normalizza_dataframe(st.session_state.dati_spese_v2)
 
 # --- INTESTAZIONE CON LOGO ---
 col_logo, col_intestazione = st.columns([1, 3])
@@ -224,9 +248,11 @@ st.divider()
 # --- TABELLA PRINCIPALE VOCI DI SPESA ---
 st.subheader(f"📋 1. Voci Spesa Giornaliere - {st.session_state['mese_nota_spese']}")
 
-# Renderizziamo l'editor partendo dai dati salvati in session_state
+# Assicuriamo che il dataframe caricato sia sempre normalizzato
+df_da_mostrare = normalizza_dataframe(st.session_state.dati_spese_v2)
+
 df_edit = st.data_editor(
-    st.session_state.dati_spese_v2,
+    df_da_mostrare,
     num_rows="dynamic",
     use_container_width=True,
     key="editor_spese_mensili",
@@ -241,7 +267,7 @@ df_edit = st.data_editor(
     }
 )
 
-# Sincronizziamo immediatamente lo stato con i nuovi valori inseriti
+# Sincronizziamo lo stato con le modifiche correnti
 st.session_state.dati_spese_v2 = df_edit
 
 # --- CALCOLO E AGGIORNAMENTO TOTALI IN TEMPO REALE ---
@@ -251,7 +277,7 @@ autostrada_totale = calcola_somma_sicura(df_edit, "Autostrada (€)")
 vitto_totale = calcola_somma_sicura(df_edit, "Vitto (€)")
 varie_totale = calcola_somma_sicura(df_edit, "Varie (€)")
 
-# Card Metric per aggiornamento visivo dinamico istantaneo
+# Card Metric aggiornate istantaneamente
 c_tot1, c_tot2, c_tot3, c_tot4 = st.columns(4)
 c_tot1.metric("Totale Km", f"{km_totali:.0f} Km", f"€ {totale_rimborso_km:.2f}")
 c_tot2.metric("Totale Autostrade", f"€ {autostrada_totale:.2f}")
