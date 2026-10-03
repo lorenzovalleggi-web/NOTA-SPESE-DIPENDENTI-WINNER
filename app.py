@@ -6,8 +6,8 @@ import os
 import json
 import base64
 
-# 1. Configurazione della pagina
-st.set_page_config(page_title="Nota Spese - Winner", layout="wide")
+# 1. Configurazione della pagina Streamlit
+st.set_page_config(page_title="Nota Spese Mensile - Winner", layout="wide")
 
 PATH_BOZZA_LOCALE = "bozza_automatica.json"
 
@@ -16,7 +16,7 @@ MESI_ANNO = [
     "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"
 ]
 
-# --- FUNZIONI DI SUPPORTO E CALLBACK ---
+# --- FUNZIONI DI SUPPORTO ---
 def salva_bozza_automatica():
     allegati_serializzabili = []
     for item in st.session_state.get("allegati_dkv_list", []):
@@ -25,12 +25,13 @@ def salva_bozza_automatica():
             "categoria": item.get("categoria", "Varie"),
             "importo": item.get("importo", 0.0),
             "data": str(item.get("data", date.today())),
-            "mese_riferimento": item.get("mese_riferimento", f"{MESI_ANNO[date.today().month - 1]} {date.today().year}")
+            "mese_riferimento": item.get("mese_riferimento", st.session_state.get("mese_nota_spese", ""))
         })
 
     dati_da_salvare = {
         "nome": st.session_state.get("nome_user", "LORENZO"),
         "cognome": st.session_state.get("cognome_user", "VALLEGGI"),
+        "mese_nota_spese": st.session_state.get("mese_nota_spese", f"{MESI_ANNO[date.today().month - 1]} {date.today().year}"),
         "spese": st.session_state.dati_spese_v2.to_dict(orient="records") if "dati_spese_v2" in st.session_state else [],
         "rifornimenti": st.session_state.rifornimenti_dkv.to_dict(orient="records") if "rifornimenti_dkv" in st.session_state else [],
         "telepass": st.session_state.dati_telepass.to_dict(orient="records") if "dati_telepass" in st.session_state else [],
@@ -53,6 +54,8 @@ def carica_bozza_automatica():
                     st.session_state["nome_user"] = dati["nome"]
                 if "cognome" in dati:
                     st.session_state["cognome_user"] = dati["cognome"]
+                if "mese_nota_spese" in dati:
+                    st.session_state["mese_nota_spese"] = dati["mese_nota_spese"]
                 if "firma_dipendente" in dati:
                     st.session_state["firma_dipendente"] = dati["firma_dipendente"]
                 if "firma_approvatore" in dati:
@@ -79,12 +82,8 @@ def carica_bozza_automatica():
 def rimuovi_allegato(indice):
     st.session_state.allegati_dkv_list.pop(indice)
 
-def elimina_documento_telepass():
-    st.session_state.file_telepass_info = None
-    st.session_state.prospetto_telepass_originale = None
-
 # --- VISUALIZZATORE ANTEPRIMA MULTI-FORMATO (IMMAGINI E PDF) ---
-def mostra_anteprima_scontrino(file_obj, file_name, file_bytes=None, mime_type=None, height=250):
+def mostra_anteprima_scontrino(file_obj, file_name, file_bytes=None, mime_type=None, height=220):
     b_data = file_obj.getvalue() if file_obj is not None else file_bytes
     m_type = file_obj.type if file_obj is not None else (mime_type or "application/octet-stream")
 
@@ -101,7 +100,7 @@ def mostra_anteprima_scontrino(file_obj, file_name, file_bytes=None, mime_type=N
             pdf_display = f''
             st.markdown(pdf_display, unsafe_allow_html=True)
         except Exception:
-            st.info("📄 Documento PDF Allegato (Anteprima non supportata nel browser)")
+            st.info("📄 Documento PDF Allegato")
     else:
         st.info(f"📄 Documento allegato (`{file_name}`)")
 
@@ -121,7 +120,7 @@ def mostra_scontrino_modal(file_obj, file_name, file_bytes=None, mime_type=None)
         use_container_width=True
     )
 
-# --- INIZIALIZZAZIONE STATO DI SESSIONE ---
+# --- INIZIALIZZAZIONE STATO ---
 if "primo_avvio" not in st.session_state:
     carica_bozza_automatica()
     st.session_state["primo_avvio"] = False
@@ -138,12 +137,6 @@ if "prospetto_telepass_originale" not in st.session_state:
 if "file_telepass_info" not in st.session_state:
     st.session_state.file_telepass_info = None
 
-if "img_firma_dipendente" not in st.session_state:
-    st.session_state.img_firma_dipendente = None
-
-if "img_firma_approvatore" not in st.session_state:
-    st.session_state.img_firma_approvatore = None
-
 # --- INTESTAZIONE CON LOGO ---
 col_logo, col_intestazione = st.columns([1, 3])
 
@@ -158,7 +151,7 @@ with col_logo:
                 pass
 
 with col_intestazione:
-    st.title("📄 NOTA SPESE DIPENDENTI E COLLABORATORI")
+    st.title("📄 NOTA SPESE MENSILE DIPENDENTI")
     st.markdown("""
     **WINNER SOCIETÀ COOPERATIVA**  
     *Sede Legale / Operativa:* Civitavecchia (RM) | *Tel:* 0766 505 197
@@ -166,18 +159,38 @@ with col_intestazione:
 
 st.divider()
 
-# --- ANAGRAFICA DIPENDENTE ---
-col1, col2, col3, col4 = st.columns(4)
-with col1:
+# --- ANAGRAFICA E SELEZIONE MESE RIFERIMENTO ---
+st.subheader("👤 Anagrafica e Periodo di Riferimento")
+
+col_a1, col_a2, col_a3, col_a4 = st.columns([2, 2, 3, 2])
+
+with col_a1:
     nome = st.text_input("Nome", st.session_state.get("nome_user", "LORENZO"), key="nome_input")
     st.session_state["nome_user"] = nome
-with col2:
+
+with col_a2:
     cognome = st.text_input("Cognome", st.session_state.get("cognome_user", "VALLEGGI"), key="cognome_input")
     st.session_state["cognome_user"] = cognome
-with col3:
-    costo_km_a = st.number_input("Rimborsabilità Km Cat. A (€)", value=0.25, disabled=True)
-with col4:
-    costo_km_b = st.number_input("Rimborsabilità Km Cat. B (€)", value=0.20, disabled=True)
+
+with col_a3:
+    # Selezione del MESE E ANNO DI RIFERIMENTO
+    anno_corrente = date.today().year
+    opzioni_mesi_anno = [f"{m} {anno_corrente}" for m in MESI_ANNO] + [f"{m} {anno_corrente-1}" for m in MESI_ANNO]
+    idx_default = date.today().month - 1
+    
+    mese_selezionato = st.selectbox(
+        "📅 MESE DI RIFERIMENTO NOTA SPESE",
+        options=opzioni_mesi_anno,
+        index=st.session_state.get("idx_mese_pref", idx_default),
+        key="select_mese_principale"
+    )
+    st.session_state["mese_nota_spese"] = mese_selezionato
+
+with col_a4:
+    costo_km_a = st.number_input("Rimborso Km Cat. A (€)", value=0.25, disabled=True)
+
+# Evidenziatore Visuale del Mese
+st.info(f"📌 **Nota Spese Mensile in elaborazione per il periodo:** `{st.session_state['mese_nota_spese']}`")
 
 st.divider()
 
@@ -203,12 +216,12 @@ if "rifornimenti_dkv" not in st.session_state:
         {"Data": date.today(), "Importo (€)": 0.0, "Litri": 0.0, "Distributore / Note": "Stazione DKV"}
     ])
 
-# --- BARRA DI RIPRISTINO/SALVATAGGIO ---
+# --- BARRA SALVATAGGIO ---
 col_salva1, col_salva2, col_salva3 = st.columns([2, 2, 2])
 with col_salva1:
-    if st.button("💾 Salva Dati Correnti", type="primary", use_container_width=True):
+    if st.button("💾 Salva Bozza Mensile", type="primary", use_container_width=True):
         salva_bozza_automatica()
-        st.success("Dati salvati con successo!")
+        st.success(f"Bozza per **{st.session_state['mese_nota_spese']}** salvata!")
 with col_salva2:
     if st.button("🔄 Ripristina Dati Salvati", use_container_width=True):
         carica_bozza_automatica()
@@ -220,174 +233,16 @@ with col_salva3:
         st.session_state.dati_spese_v2 = crea_df_iniziale()
         st.session_state.rifornimenti_dkv = pd.DataFrame([])
         st.session_state.dati_telepass = pd.DataFrame(columns=["Data", "Importo (€)", "Categoria"])
-        st.session_state.prospetto_telepass_originale = None
-        st.session_state.file_telepass_info = None
         st.session_state.allegati_dkv_list = []
-        st.session_state.firma_dipendente = ""
-        st.session_state.firma_approvatore = ""
-        st.session_state.img_firma_dipendente = None
-        st.session_state.img_firma_approvatore = None
         st.rerun()
 
 st.divider()
 
-# --- SEZIONE TELEPASS ---
-st.subheader("🚗 1. Prospetto e Gestione Pedaggi Telepass")
-
-file_telepass = st.file_uploader(
-    "📎 Carica File Prospetto Pedaggi Telepass (CSV, Excel, PDF o Immagine)",
-    type=["csv", "xlsx", "xls", "pdf", "jpg", "jpeg", "png"],
-    key="uploader_telepass"
-)
-
-if file_telepass is not None:
-    try:
-        fname = file_telepass.name.lower()
-        if fname.endswith('.csv'):
-            st.session_state.prospetto_telepass_originale = pd.read_csv(file_telepass)
-            st.session_state.file_telepass_info = {"type": "csv", "name": file_telepass.name, "file_obj": file_telepass}
-        elif fname.endswith(('.xlsx', '.xls')):
-            st.session_state.prospetto_telepass_originale = pd.read_excel(file_telepass)
-            st.session_state.file_telepass_info = {"type": "excel", "name": file_telepass.name, "file_obj": file_telepass}
-        elif fname.endswith(('.jpg', '.jpeg', '.png')):
-            st.session_state.prospetto_telepass_originale = None
-            st.session_state.file_telepass_info = {
-                "type": "image",
-                "name": file_telepass.name,
-                "file_obj": file_telepass,
-                "bytes": file_telepass.getvalue(),
-                "mime": file_telepass.type
-            }
-        elif fname.endswith('.pdf'):
-            st.session_state.prospetto_telepass_originale = None
-            st.session_state.file_telepass_info = {
-                "type": "pdf",
-                "name": file_telepass.name,
-                "file_obj": file_telepass,
-                "bytes": file_telepass.getvalue(),
-                "mime": "application/pdf"
-            }
-        st.success(f"File **{file_telepass.name}** caricato correttamente!")
-    except Exception as e:
-        st.error(f"Errore nella lettura del file Telepass: {e}")
-
-if st.session_state.file_telepass_info is not None:
-    info = st.session_state.file_telepass_info
-    st.markdown("### 🔍 Anteprima Documento Telepass Allegato")
-    
-    col_prev1, col_prev2 = st.columns([1, 2])
-    
-    with col_prev1:
-        with st.container(border=True):
-            mostra_anteprima_scontrino(info.get("file_obj"), info["name"], info.get("bytes"), info.get("mime"), height=250)
-            
-            if st.button("🔍 Ingrandisci Anteprima Telepass", key="zoom_telepass_img", use_container_width=True):
-                mostra_scontrino_modal(info.get("file_obj"), info["name"], info.get("bytes"), info.get("mime"))
-                
-            st.download_button(
-                label="📥 Scarica Documento",
-                data=info.get("bytes") or (info["file_obj"].getvalue() if info.get("file_obj") else b""),
-                file_name=info["name"],
-                mime=info.get("mime", "application/octet-stream"),
-                key="dl_telepass_doc",
-                use_container_width=True
-            )
-
-            if st.button("🗑 Rimuovi Documento Telepass", key="del_telepass_doc", use_container_width=True):
-                elimina_documento_telepass()
-                st.rerun()
-
-    with col_prev2:
-        if st.session_state.prospetto_telepass_originale is not None:
-            st.markdown("**Tabella Dati Estratti dal File:**")
-            st.dataframe(st.session_state.prospetto_telepass_originale, use_container_width=True, height=220)
-
-st.markdown("#### 📝 Dettaglio e Totale Spese Telepass")
-
-totale_telepass_calc = 0.0
-if not st.session_state.dati_telepass.empty and "Importo (€)" in st.session_state.dati_telepass.columns:
-    totale_telepass_calc = pd.to_numeric(st.session_state.dati_telepass["Importo (€)"], errors='coerce').fillna(0).sum()
-
-col_tele_tot1, col_tele_tot2 = st.columns([1, 2])
-with col_tele_tot1:
-    st.metric("TOTALE SPESE TELEPASS", f"€ {totale_telepass_calc:.2f}")
-
-df_telepass_edited = st.data_editor(
-    st.session_state.dati_telepass[["Data", "Importo (€)", "Categoria"]] if all(c in st.session_state.dati_telepass.columns for c in ["Data", "Importo (€)", "Categoria"]) else st.session_state.dati_telepass,
-    num_rows="dynamic",
-    use_container_width=True,
-    key="editor_telepass",
-    column_config={
-        "Data": st.column_config.DateColumn("Data Pedaggio", format="DD/MM/YYYY"),
-        "Importo (€)": st.column_config.NumberColumn("Importo (€)", min_value=0.0, format="%.2f €"),
-        "Categoria": st.column_config.SelectboxColumn("Categoria Spesa", options=["Cat. A", "Cat. B"])
-    }
-)
-st.session_state.dati_telepass = df_telepass_edited.copy()
-
-btn_col_t1, btn_col_t2 = st.columns(2)
-
-with btn_col_t1:
-    if st.button("➕ Aggiungi Totale Telepass in Nota Spese", type="primary", use_container_width=True):
-        if totale_telepass_calc > 0:
-            df_spese_curr = st.session_state.dati_spese_v2.copy()
-            nuova_riga = {
-                "Data": date.today(),
-                "Comune": "Totale Prospetto Telepass",
-                "Coordinatore di Zona": "",
-                "Km_A": 0, "Autostrade_A": totale_telepass_calc,
-                "Vitto_A": 0.0, "Varie_A": 0.0,
-                "Km_B": 0, "Autostrade_B": 0.0,
-                "Vitto_B": 0.0, "Varie_B": 0.0
-            }
-            df_spese_curr = pd.concat([df_spese_curr, pd.DataFrame([nuova_riga])], ignore_index=True)
-            st.session_state.dati_spese_v2 = df_spese_curr
-            salva_bozza_automatica()
-            st.success(f"Totale Telepass (€ {totale_telepass_calc:.2f}) aggiunto alla nota spese!")
-            st.rerun()
-
-with btn_col_t2:
-    if st.button("🔄 Trasferisci Pedaggi Giornalieri nella Nota Spese", use_container_width=True):
-        if not df_telepass_edited.empty and "Data" in df_telepass_edited.columns:
-            df_tel_clean = df_telepass_edited.dropna(subset=["Data"]).copy()
-            df_spese_curr = st.session_state.dati_spese_v2.copy()
-            
-            for idx, row in df_tel_clean.iterrows():
-                data_pedaggio = row["Data"]
-                importo = float(row.get("Importo (€)", 0.0) or 0.0)
-                categoria = row.get("Categoria", "Cat. A")
-                
-                mask = df_spese_curr["Data"] == data_pedaggio
-                if mask.any():
-                    if categoria == "Cat. B":
-                        df_spese_curr.loc[mask, "Autostrade_B"] = df_spese_curr.loc[mask, "Autostrade_B"] + importo
-                    else:
-                        df_spese_curr.loc[mask, "Autostrade_A"] = df_spese_curr.loc[mask, "Autostrade_A"] + importo
-                else:
-                    nuova_riga = {
-                        "Data": data_pedaggio,
-                        "Comune": "Da Prospetto Telepass",
-                        "Coordinatore di Zona": "",
-                        "Km_A": 0, "Autostrade_A": importo if categoria != "Cat. B" else 0.0,
-                        "Vitto_A": 0.0, "Varie_A": 0.0,
-                        "Km_B": 0, "Autostrade_B": importo if categoria == "Cat. B" else 0.0,
-                        "Vitto_B": 0.0, "Varie_B": 0.0
-                    }
-                    df_spese_curr = pd.concat([df_spese_curr, pd.DataFrame([nuova_riga])], ignore_index=True)
-                    
-            st.session_state.dati_spese_v2 = df_spese_curr
-            salva_bozza_automatica()
-            st.success("Spese autostradali aggiunte correttamente alla nota spese!")
-            st.rerun()
-
-st.divider()
-
 # --- TABELLA PRINCIPALE VOCI DI SPESA ---
-st.subheader("📋 2. Inserimento Voci di Spesa Giornaliere")
+st.subheader(f"📋 1. Voci Spesa Giornaliere - {st.session_state['mese_nota_spese']}")
 
 df_display = st.session_state.dati_spese_v2.copy()
 df_display["Importo_Km_A"] = pd.to_numeric(df_display.get("Km_A", 0), errors='coerce').fillna(0) * costo_km_a
-df_display["Importo_Km_B"] = pd.to_numeric(df_display.get("Km_B", 0), errors='coerce').fillna(0) * costo_km_b
 
 df_edit = st.data_editor(
     df_display,
@@ -399,49 +254,23 @@ df_edit = st.data_editor(
         "Comune": st.column_config.TextColumn("Comune / Note"),
         "Coordinatore di Zona": st.column_config.SelectboxColumn("Coordinatore di Zona", options=coordinatori),
         "Km_A": st.column_config.NumberColumn("Km Percorsi (0,25 €)", min_value=0, step=1),
-        "Importo_Km_A": st.column_config.NumberColumn("Tot. Rimborso Km A (€)", format="%.2f €", disabled=True),
-        "Autostrade_A": st.column_config.NumberColumn("Autostrade A (€)", min_value=0.0, format="%.2f €"),
-        "Vitto_A": st.column_config.NumberColumn("Vitto A (€)", min_value=0.0, format="%.2f €"),
-        "Varie_A": st.column_config.NumberColumn("Varie A (€)", min_value=0.0, format="%.2f €"),
-        "Km_B": st.column_config.NumberColumn("Km Percorsi (0,20 €)", min_value=0, step=1),
-        "Importo_Km_B": st.column_config.NumberColumn("Tot. Rimborso Km B (€)", format="%.2f €", disabled=True),
-        "Autostrade_B": st.column_config.NumberColumn("Autostrade B (€)", min_value=0.0, format="%.2f €"),
-        "Vitto_B": st.column_config.NumberColumn("Vitto B (€)", min_value=0.0, format="%.2f €"),
-        "Varie_B": st.column_config.NumberColumn("Varie B (€)", min_value=0.0, format="%.2f €"),
+        "Importo_Km_A": st.column_config.NumberColumn("Tot. Rimborso Km (€)", format="%.2f €", disabled=True),
+        "Autostrade_A": st.column_config.NumberColumn("Autostrade (€)", min_value=0.0, format="%.2f €"),
+        "Vitto_A": st.column_config.NumberColumn("Vitto (€)", min_value=0.0, format="%.2f €"),
+        "Varie_A": st.column_config.NumberColumn("Varie (€)", min_value=0.0, format="%.2f €"),
     }
 )
 
-st.session_state.dati_spese_v2 = df_edit.drop(columns=["Importo_Km_A", "Importo_Km_B"], errors="ignore").copy()
+st.session_state.dati_spese_v2 = df_edit.drop(columns=["Importo_Km_A"], errors="ignore").copy()
 salva_bozza_automatica()
 
 st.divider()
 
-# --- SEZIONE RIFORNIMENTI CARTA DKV ---
-st.subheader("⛽ Registrazione Rifornimenti Carta DKV")
+# --- GESTIONE ALLEGATI E SCONTRINI MENSILE CON ANTEPRIMA ---
+st.subheader(f"🧾 2. Allegati e Scontrini - {st.session_state['mese_nota_spese']}")
 
-df_rifornimenti = st.data_editor(
-    st.session_state.rifornimenti_dkv,
-    num_rows="dynamic",
-    use_container_width=True,
-    key="editor_rifornimenti",
-    column_config={
-        "Data": st.column_config.DateColumn("Data Rifornimento", format="DD/MM/YYYY"),
-        "Importo (€)": st.column_config.NumberColumn("Importo Speso (€)", min_value=0.0, format="%.2f €"),
-        "Litri": st.column_config.NumberColumn("Litri Carburante", min_value=0.0, format="%.2f L"),
-        "Distributore / Note": st.column_config.TextColumn("Distributore / Note"),
-    }
-)
-st.session_state.rifornimenti_dkv = df_rifornimenti.copy()
-
-st.divider()
-
-# --- GESTIONE ALLEGATI / SCONTRINI (AUTOSTRADA, VITTO, VARIE) CON ANTEPRIMA ---
-st.subheader("🧾 Gestione Allegati / Scontrini (Autostrada, Vitto, Varie)")
-st.info("Carica gli scontrini selezionando la categoria (Autostrada, Vitto, Varie), data, importo e mese. Potrai visualizzare l'anteprima immediata di immagini e PDF.")
-
-# 1. FORM CARICAMENTO SCONTRINI CON ANTEPRIMA IMMEDIATA
 with st.container(border=True):
-    st.markdown("#### ➕ Carica Nuovo Scontrino o Ricevuta")
+    st.markdown("#### ➕ Carica Scontrino per questo Mese")
     
     col_up1, col_up2, col_up3, col_up4 = st.columns([2, 2, 2, 2])
     
@@ -453,15 +282,10 @@ with st.container(border=True):
         )
     
     with col_up2:
-        anno_corrente = date.today().year
-        opzioni_mesi = [f"{m} {anno_corrente}" for m in MESI_ANNO]
-        mese_corrente_idx = date.today().month - 1
-        
-        mese_rif_sel = st.selectbox(
+        mese_rif_scontrino = st.text_input(
             "Mese di Riferimento",
-            options=opzioni_mesi,
-            index=mese_corrente_idx,
-            key="mese_rif_uploader"
+            value=st.session_state["mese_nota_spese"],
+            disabled=True
         )
         
     with col_up3:
@@ -471,211 +295,83 @@ with st.container(border=True):
         importo_scontrino_sel = st.number_input("Importo (€)", min_value=0.0, step=0.50, format="%.2f", key="importo_scontrino_uploader")
 
     nuovi_file = st.file_uploader(
-        "📎 Seleziona File Scontrino (JPG, PNG, PDF)",
+        "📎 Seleziona Scontrini (JPG, PNG, PDF)",
         type=["jpg", "jpeg", "png", "pdf"],
         accept_multiple_files=True,
         key="nuovi_scontrini_uploader"
     )
 
     if nuovi_file:
-        for f in nuovi_file:
-            if f.name not in [x["name"] for x in st.session_state.allegati_dkv_list]:
+        st.markdown("##### 👁️ Anteprima Immediata File Selezionati:")
+        cols_preview = st.columns(min(len(nuovi_file), 3))
+        
+        for idx_f, f_item in enumerate(nuovi_file):
+            with cols_preview[idx_f % 3]:
+                with st.container(border=True):
+                    st.caption(f"📄 `{f_item.name}`")
+                    mostra_anteprima_scontrino(f_item, f_item.name, height=180)
+
+            if f_item.name not in [x["name"] for x in st.session_state.allegati_dkv_list]:
                 st.session_state.allegati_dkv_list.append({
-                    "name": f.name,
-                    "file": f,
+                    "name": f_item.name,
+                    "file": f_item,
                     "categoria": tipo_spesa_sel,
                     "importo": float(importo_scontrino_sel),
                     "data": data_scontrino_sel,
-                    "mese_riferimento": mese_rif_sel
+                    "mese_riferimento": st.session_state["mese_nota_spese"]
                 })
         salva_bozza_automatica()
 
-# 2. RIEPILOGO TOTALI PER MESE E CATEGORIA
+# ANTEPRIMA E SCHEDE SCONTRINI CARICATI
 if st.session_state.allegati_dkv_list:
-    st.markdown("### 📊 Riepilogo Totali Scontrini Allegati")
+    st.markdown(f"### 🖼️ Elenco Scontrini per {st.session_state['mese_nota_spese']}")
     
-    mesi_presenti = sorted(list(set(x.get("mese_riferimento", f"{MESI_ANNO[date.today().month-1]} {date.today().year}") for x in st.session_state.allegati_dkv_list)))
-    
-    col_filtro_m, col_m1, col_m2, col_m3, col_m4 = st.columns([2, 2, 2, 2, 2])
-    
-    with col_filtro_m:
-        mese_filtrato = st.selectbox("Filtra Mese di Riferimento:", options=["Tutti i Mesi"] + mesi_presenti)
-        
-    scontrini_filtrati_mese = [
-        x for x in st.session_state.allegati_dkv_list
-        if mese_filtrato == "Tutti i Mesi" or x.get("mese_riferimento") == mese_filtrato
-    ]
-    
-    tot_auto = sum(x.get("importo", 0.0) for x in scontrini_filtrati_mese if x.get("categoria") == "Autostrada")
-    tot_vitto = sum(x.get("importo", 0.0) for x in scontrini_filtrati_mese if x.get("categoria") == "Vitto")
-    tot_varie = sum(x.get("importo", 0.0) for x in scontrini_filtrati_mese if x.get("categoria") == "Varie")
-    tot_generale_mese = tot_auto + tot_vitto + tot_varie
-    
-    with col_m1:
-        st.metric("🚗 Totale Autostrada", f"€ {tot_auto:.2f}")
-    with col_m2:
-        st.metric("🍽️ Totale Vitto", f"€ {tot_vitto:.2f}")
-    with col_m3:
-        st.metric("📦 Totale Varie", f"€ {tot_varie:.2f}")
-    with col_m4:
-        st.metric("💰 TOTALE MESE", f"€ {tot_generale_mese:.2f}")
-
-    st.divider()
-
-    # 3. ANTEPRIMA E SCHEDE ALLEGATI
-    st.markdown("### 🖼️ Anteprima e Dettaglio Scontrini Allegati")
-    
-    cat_filter = st.radio(
-        "Filtra Categoria Spesa:",
-        options=["Tutti", "Autostrada", "Vitto", "Varie"],
-        horizontal=True,
-        key="filtro_allegati"
-    )
-    
-    elementi_filtrati = [
+    elementi_mese = [
         (idx, item) for idx, item in enumerate(st.session_state.allegati_dkv_list)
-        if (cat_filter == "Tutti" or item.get("categoria", "Varie") == cat_filter) and
-           (mese_filtrato == "Tutti i Mesi" or item.get("mese_riferimento") == mese_filtrato)
+        if item.get("mese_riferimento") == st.session_state["mese_nota_spese"]
     ]
     
-    if elementi_filtrati:
+    if elementi_mese:
         cols_foto = st.columns(3)
-        for grid_idx, (real_idx, item) in enumerate(elementi_filtrati):
-            col_curr = cols_foto[grid_idx % 3]
-            with col_curr:
+        for grid_idx, (real_idx, item) in enumerate(elementi_mese):
+            with cols_foto[grid_idx % 3]:
                 file_obj = item["file"]
                 file_name = item["name"]
                 cat_curr = item.get("categoria", "Varie")
                 imp_curr = item.get("importo", 0.0)
                 data_curr = item.get("data", date.today())
-                mese_curr = item.get("mese_riferimento", "")
                 
                 with st.container(border=True):
                     st.markdown(f"🏷️ **{cat_curr.upper()}** | 📅 `{data_curr}`")
                     st.markdown(f"💶 **Importo:** € `{imp_curr:.2f}`")
-                    st.caption(f"Mese Riferimento: **{mese_curr}**")
                     
-                    # VISUALIZZAZIONE ANTEPRIMA SCONTRINO (IMMAGINE O PDF)
+                    # ANTEPRIMA VISIVA SCONTRINO
                     mostra_anteprima_scontrino(file_obj, file_name, height=220)
                     
-                    st.caption(f"📁 `{file_name}`")
-                    
-                    # Modifica rapida importo
-                    nuovo_imp = st.number_input(
-                        "Modifica Importo (€)",
-                        value=float(imp_curr),
-                        key=f"mod_imp_{real_idx}_{file_name}",
-                        format="%.2f"
-                    )
-                    st.session_state.allegati_dkv_list[real_idx]["importo"] = nuovo_imp
-                    
-                    # Pulsante per ingrandire
-                    if st.button("🔍 Ingrandisci Anteprima", key=f"zoom_{real_idx}_{file_name}", use_container_width=True):
+                    if st.button("🔍 Ingrandisci", key=f"zoom_{real_idx}_{file_name}", use_container_width=True):
                         mostra_scontrino_modal(file_obj, file_name)
-                    
-                    # Download
-                    st.download_button(
-                        label="📥 Scarica File",
-                        data=file_obj.getvalue(),
-                        file_name=file_name,
-                        mime=file_obj.type,
-                        key=f"dl_{real_idx}_{file_name}",
-                        use_container_width=True
-                    )
-                    
-                    # Elimina
-                    st.button(
-                        "🗑 Elimina Scontrino", 
-                        key=f"del_{real_idx}_{file_name}", 
-                        on_click=rimuovi_allegato, 
-                        args=(real_idx,), 
-                        use_container_width=True
-                    )
-    else:
-        st.info("Nessun allegato trovato per i filtri selezionati.")
+                        
+                    st.button("🗑 Elimina", key=f"del_{real_idx}_{file_name}", on_click=rimuovi_allegato, args=(real_idx,), use_container_width=True)
 
 st.divider()
 
-# --- SEZIONE FIRME CON CARICAMENTO IMMAGINI ---
-st.subheader("✍️ Firme e Approvazione")
-
-col_firma1, col_firma2 = st.columns(2)
-
-with col_firma1:
-    st.markdown("**Firma Dipendente / Collaboratore**")
-    firma_dip = st.text_input(
-        "Nome e Cognome Dipendente",
-        value=st.session_state.get("firma_dipendente", f"{st.session_state.get('nome_user', '')} {st.session_state.get('cognome_user', '')}"),
-        key="firma_dipendente_input"
-    )
-    st.session_state["firma_dipendente"] = firma_dip
-
-    file_firma_dip = st.file_uploader(
-        "📷 Carica Immagine Firma Autografa Dipendente (PNG, JPG)",
-        type=["png", "jpg", "jpeg"],
-        key="uploader_firma_dipendente"
-    )
-    if file_firma_dip is not None:
-        st.session_state.img_firma_dipendente = file_firma_dip.getvalue()
-
-    if st.session_state.img_firma_dipendente:
-        st.image(st.session_state.img_firma_dipendente, caption="Firma Dipendente Caricata", width=250)
-    elif firma_dip:
-        st.info(f"Signed digitally by: **{firma_dip}** in data {date.today().strftime('%d/%m/%Y')}")
-
-with col_firma2:
-    st.markdown("**Firma Approvazione / Responsabile**")
-    firma_appr = st.text_input(
-        "Nome e Cognome Responsabile / Coordinatore",
-        value=st.session_state.get("firma_approvatore", ""),
-        key="firma_approvatore_input",
-        placeholder="Es. Coordinatore di Zona / Direzione"
-    )
-    st.session_state["firma_approvatore"] = firma_appr
-
-    file_firma_appr = st.file_uploader(
-        "📷 Carica Immagine Firma Responsabile (PNG, JPG)",
-        type=["png", "jpg", "jpeg"],
-        key="uploader_firma_approvatore"
-    )
-    if file_firma_appr is not None:
-        st.session_state.img_firma_approvatore = file_firma_appr.getvalue()
-
-    if st.session_state.img_firma_approvatore:
-        st.image(st.session_state.img_firma_approvatore, caption="Firma Responsabile Caricata", width=250)
-    elif firma_appr:
-        st.success(f"Approved by: **{firma_appr}** in data {date.today().strftime('%d/%m/%Y')}")
-
-st.divider()
-
-# --- TOTALE E ESPORTAZIONE ---
+# --- RIEPILOGO FINALE MESE ---
 df_finale = df_edit.copy()
-if not df_finale.empty:
-    km_a_sum = pd.to_numeric(df_finale.get("Km_A", 0), errors='coerce').fillna(0).sum()
-    km_b_sum = pd.to_numeric(df_finale.get("Km_B", 0), errors='coerce').fillna(0).sum()
-    totale_rimborso_km = (km_a_sum * costo_km_a) + (km_b_sum * costo_km_b)
+km_sum = pd.to_numeric(df_finale.get("Km_A", 0), errors='coerce').fillna(0).sum()
+tot_km = km_sum * costo_km_a
 
-    auto = pd.to_numeric(df_finale.get("Autostrade_A", 0), errors='coerce').fillna(0).sum() + pd.to_numeric(df_finale.get("Autostrade_B", 0), errors='coerce').fillna(0).sum()
-    vitto = pd.to_numeric(df_finale.get("Vitto_A", 0), errors='coerce').fillna(0).sum() + pd.to_numeric(df_finale.get("Vitto_B", 0), errors='coerce').fillna(0).sum()
-    varie = pd.to_numeric(df_finale.get("Varie_A", 0), errors='coerce').fillna(0).sum() + pd.to_numeric(df_finale.get("Varie_B", 0), errors='coerce').fillna(0).sum()
+auto = pd.to_numeric(df_finale.get("Autostrade_A", 0), errors='coerce').fillna(0).sum()
+vitto = pd.to_numeric(df_finale.get("Vitto_A", 0), errors='coerce').fillna(0).sum()
+varie = pd.to_numeric(df_finale.get("Varie_A", 0), errors='coerce').fillna(0).sum()
+totale_generale_mese = tot_km + auto + vitto + varie
 
-    totale_generale = totale_rimborso_km + auto + vitto + varie
+st.subheader(f"📊 RIEPILOGO FINALE MENSILE - {st.session_state['mese_nota_spese']}")
+st.metric(f"TOTALE SPESE DA RIMBORSARE ({st.session_state['mese_nota_spese']})", f"€ {totale_generale_mese:.2f}")
 
-    st.subheader("📊 RIEPILOGO TOTALE")
-    st.metric("TOTALE GENERALE PAGATO", f"€ {totale_generale:.2f}")
-
-    btn_col1, btn_col2 = st.columns(2)
-    with btn_col1:
-        st.download_button(
-            label="📥 Scarica Nota Spese Finale (CSV)",
-            data=df_finale.to_csv(index=False).encode('utf-8'),
-            file_name=f"Nota_Spese_{cognome}.csv",
-            mime="text/csv"
-        )
-    with btn_col2:
-        st.download_button(
-            label="💾 Scarica File Bozza (.json)",
-            data=df_finale.to_json(orient="records", date_format="iso"),
-            file_name=f"Bozza_Nota_Spese_{cognome}.json",
-            mime="application/json"
-        )
+st.download_button(
+    label=f"📥 Scarica Nota Spese {st.session_state['mese_nota_spese']} (CSV)",
+    data=df_finale.to_csv(index=False).encode('utf-8'),
+    file_name=f"Nota_Spese_{cognome}_{st.session_state['mese_nota_spese'].replace(' ', '_')}.csv",
+    mime="text/csv",
+    use_container_width=True
+)
