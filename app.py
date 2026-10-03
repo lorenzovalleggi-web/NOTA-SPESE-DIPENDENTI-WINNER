@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import date
+from datetime import date, datetime
 from PIL import Image
 import os
 import json
@@ -24,6 +24,24 @@ COORDINATORI = [
     "Coordinatore Ceniti", "Coordinatore Ledda", "Coordinatore Mazzoleni",
     "Coordinatore Migliaccio", "Coordinatore Piccinetti", "Coordinatore Vendemini", "Coordinatore Stella"
 ]
+
+# --- CONVERSIONE E NORMALIZZAZIONE DATE ---
+def assicura_formato_data(val):
+    """Garantisce che il valore sia un oggetto datetime.date valido per Streamlit DateColumn"""
+    if pd.isna(val) or val is None or str(val).strip() == "":
+        return date.today()
+    if isinstance(val, date) and not isinstance(val, datetime):
+        return val
+    if isinstance(val, datetime):
+        return val.date()
+    if isinstance(val, pd.Timestamp):
+        return val.date()
+    if isinstance(val, str):
+        try:
+            return pd.to_datetime(val).date()
+        except Exception:
+            return date.today()
+    return date.today()
 
 # --- CONVERSIONE FILE IN BASE64 ---
 def file_to_base64(file_obj):
@@ -76,7 +94,8 @@ def ridimensiona_immagine(file_uploaded, max_size=(600, 600), qualita=75):
 # --- NORMALIZZAZIONE DATAFRAME ---
 def normalizza_dataframe(df):
     if df is None or df.empty:
-        return pd.DataFrame(columns=["Data", "Comune", "Coordinatore", "Km", "Autostrada (€)", "Vitto (€)", "Varie (€)"])
+        df = pd.DataFrame(columns=["Data", "Comune", "Coordinatore", "Km", "Autostrada (€)", "Vitto (€)", "Varie (€)"])
+        return df
     
     mappa_colonne = {
         "Km_A": "Km",
@@ -90,6 +109,10 @@ def normalizza_dataframe(df):
     cols_da_rimuovere = [c for c in df.columns if c.endswith("_B") or " B" in c]
     if cols_da_rimuovere:
         df = df.drop(columns=cols_da_rimuovere, errors="ignore")
+
+    # Assicurati che la colonna Data sia formattata correttamente come datetime.date
+    if "Data" in df.columns:
+        df["Data"] = df["Data"].apply(assicura_formato_data)
         
     return df
 
@@ -128,14 +151,14 @@ def salva_bozza_automatica():
     if "dati_spese_v2" in st.session_state and not st.session_state.dati_spese_v2.empty:
         df_temp = normalizza_dataframe(st.session_state.dati_spese_v2.copy())
         if "Data" in df_temp.columns:
-            df_temp["Data"] = df_temp["Data"].astype(str)
+            df_temp["Data"] = df_temp["Data"].apply(lambda x: str(x) if x is not None else str(date.today()))
         spese_dict = df_temp.to_dict(orient="records")
 
     telepass_dict = []
     if "dati_telepass" in st.session_state and not st.session_state.dati_telepass.empty:
         df_tele = st.session_state.dati_telepass.copy()
         if "Data" in df_tele.columns:
-            df_tele["Data"] = df_tele["Data"].astype(str)
+            df_tele["Data"] = df_tele["Data"].apply(lambda x: str(x) if x is not None else str(date.today()))
         telepass_dict = df_tele.to_dict(orient="records")
 
     firma_dip_b64, firma_dip_type = file_to_base64(st.session_state.get("firma_dip_bytes"))
@@ -180,15 +203,13 @@ def carica_bozza_automatica():
                 
                 if "spese" in dati and dati["spese"]:
                     df_spese = pd.DataFrame(dati["spese"])
-                    if "Data" in df_spese.columns:
-                        df_spese["Data"] = pd.to_datetime(df_spese["Data"]).dt.date
                     df_spese = normalizza_dataframe(df_spese)
                     st.session_state.dati_spese_v2 = df_spese
 
                 if "telepass_spese" in dati and dati["telepass_spese"]:
                     df_telepass = pd.DataFrame(dati["telepass_spese"])
                     if "Data" in df_telepass.columns:
-                        df_telepass["Data"] = pd.to_datetime(df_telepass["Data"]).dt.date
+                        df_telepass["Data"] = df_telepass["Data"].apply(assicura_formato_data)
                     st.session_state.dati_telepass = df_telepass
 
                 if "telepass_file_b64" in dati and dati["telepass_file_b64"]:
@@ -221,7 +242,7 @@ def carica_bozza_automatica():
         except Exception:
             pass
 
-# --- FUNZIONI DI CALLBACK PER EVITARE IL BUG DEL DOPPIO INSERIMENTO ---
+# --- FUNZIONI DI CALLBACK ---
 def on_change_spese():
     state = st.session_state.editor_spese_stabile
     df = st.session_state.dati_spese_v2.copy()
@@ -229,11 +250,18 @@ def on_change_spese():
     # Gestione modifiche celle
     for row_idx, changes in state.get("edited_rows", {}).items():
         for col_name, new_val in changes.items():
+            if col_name == "Data":
+                new_val = assicura_formato_data(new_val)
             df.iat[row_idx, df.columns.get_loc(col_name)] = new_val
             
     # Gestione righe aggiunte
     for new_row in state.get("added_rows", []):
-        row_data = {col: new_row.get(col, None) for col in df.columns}
+        row_data = {}
+        for col in df.columns:
+            val = new_row.get(col, None)
+            if col == "Data":
+                val = assicura_formato_data(val)
+            row_data[col] = val
         df = pd.concat([df, pd.DataFrame([row_data])], ignore_index=True)
         
     # Gestione righe eliminate
@@ -250,16 +278,26 @@ def on_change_telepass():
     
     for row_idx, changes in state.get("edited_rows", {}).items():
         for col_name, new_val in changes.items():
+            if col_name == "Data":
+                new_val = assicura_formato_data(new_val)
             df.iat[row_idx, df.columns.get_loc(col_name)] = new_val
             
     for new_row in state.get("added_rows", []):
-        row_data = {col: new_row.get(col, None) for col in df.columns}
+        row_data = {}
+        for col in df.columns:
+            val = new_row.get(col, None)
+            if col == "Data":
+                val = assicura_formato_data(val)
+            row_data[col] = val
         df = pd.concat([df, pd.DataFrame([row_data])], ignore_index=True)
         
     deleted_indices = state.get("deleted_rows", [])
     if deleted_indices:
         df = df.drop(index=deleted_indices).reset_index(drop=True)
 
+    if "Data" in df.columns:
+        df["Data"] = df["Data"].apply(assicura_formato_data)
+        
     st.session_state.dati_telepass = df
     salva_bozza_automatica()
 
@@ -344,6 +382,9 @@ else:
 
 if "dati_telepass" not in st.session_state or st.session_state.dati_telepass is None:
     st.session_state.dati_telepass = crea_df_telepass_iniziale()
+else:
+    if "Data" in st.session_state.dati_telepass.columns:
+        st.session_state.dati_telepass["Data"] = st.session_state.dati_telepass["Data"].apply(assicura_formato_data)
 
 # --- HEADER LOGO ---
 col_logo, col_intestazione = st.columns([1, 3])
@@ -433,7 +474,7 @@ st.data_editor(
     key="editor_spese_stabile",
     on_change=on_change_spese,
     column_config={
-        "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
+        "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY", default=date.today()),
         "Comune": st.column_config.TextColumn("Comune / Note"),
         "Coordinatore": st.column_config.SelectboxColumn("Coordinatore di Zona", options=COORDINATORI),
         "Km": st.column_config.NumberColumn("Km Percorsi", min_value=0, step=1, default=0),
@@ -522,7 +563,7 @@ with col_tele2:
             key="editor_telepass_stabile",
             on_change=on_change_telepass,
             column_config={
-                "Data": st.column_config.DateColumn("Data Spesa", format="DD/MM/YYYY"),
+                "Data": st.column_config.DateColumn("Data Spesa", format="DD/MM/YYYY", default=date.today()),
                 "Tratta / Descrizione": st.column_config.TextColumn("Tratta / Descrizione Spesa"),
                 "Importo (€)": st.column_config.NumberColumn("Importo (€)", min_value=0.0, format="%.2f €", default=0.0)
             }
