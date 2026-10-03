@@ -25,7 +25,7 @@ COORDINATORI = [
     "Coordinatore Migliaccio", "Coordinatore Piccinetti", "Coordinatore Vendemini", "Coordinatore Stella"
 ]
 
-# --- CONVERSIONE FILE IN BASE64 PER IL SALVATAGGIO PERMANENTE ---
+# --- CONVERSIONE FILE IN BASE64 ---
 def file_to_base64(file_obj):
     if file_obj is None:
         return None, None
@@ -52,7 +52,7 @@ def base64_to_bytes(b64_str):
     except Exception:
         return None
 
-# --- FUNZIONE PER COMPRIMERE E RIDIMENSIONARE LE IMMAGINI CARICATE ---
+# --- FUNZIONE PER RIDIMENSIONARE IMMAGINI ---
 def ridimensiona_immagine(file_uploaded, max_size=(600, 600), qualita=75):
     try:
         if isinstance(file_uploaded, bytes):
@@ -73,7 +73,7 @@ def ridimensiona_immagine(file_uploaded, max_size=(600, 600), qualita=75):
             return file_uploaded, "application/octet-stream"
         return None, "application/octet-stream"
 
-# --- FUNZIONE PER NORMALIZZARE LE COLONNE ---
+# --- NORMALIZZAZIONE DATAFRAME ---
 def normalizza_dataframe(df):
     if df is None or df.empty:
         return pd.DataFrame(columns=["Data", "Comune", "Coordinatore", "Km", "Autostrada (€)", "Vitto (€)", "Varie (€)"])
@@ -109,7 +109,7 @@ def elimina_telepass():
     st.session_state.pop("telepass_file_name", None)
     salva_bozza_automatica()
 
-# --- FUNZIONI DI SALVATAGGIO E RIPRISTINO BOZZA COMPLETA ---
+# --- FUNZIONI PER SALVATAGGIO E CARICAMENTO BOZZA ---
 def salva_bozza_automatica():
     allegati_serializzabili = []
     for item in st.session_state.get("allegati_dkv_list", []):
@@ -221,7 +221,49 @@ def carica_bozza_automatica():
         except Exception:
             pass
 
-# --- VISUALIZZATORE ANTEPRIMA ---
+# --- FUNZIONI DI CALLBACK PER EVITARE IL BUG DEL DOPPIO INSERIMENTO ---
+def on_change_spese():
+    state = st.session_state.editor_spese_stabile
+    df = st.session_state.dati_spese_v2.copy()
+    
+    # Gestione modifiche celle
+    for row_idx, changes in state.get("edited_rows", {}).items():
+        for col_name, new_val in changes.items():
+            df.iat[row_idx, df.columns.get_loc(col_name)] = new_val
+            
+    # Gestione righe aggiunte
+    for new_row in state.get("added_rows", []):
+        row_data = {col: new_row.get(col, None) for col in df.columns}
+        df = pd.concat([df, pd.DataFrame([row_data])], ignore_index=True)
+        
+    # Gestione righe eliminate
+    deleted_indices = state.get("deleted_rows", [])
+    if deleted_indices:
+        df = df.drop(index=deleted_indices).reset_index(drop=True)
+
+    st.session_state.dati_spese_v2 = normalizza_dataframe(df)
+    salva_bozza_automatica()
+
+def on_change_telepass():
+    state = st.session_state.editor_telepass_stabile
+    df = st.session_state.dati_telepass.copy()
+    
+    for row_idx, changes in state.get("edited_rows", {}).items():
+        for col_name, new_val in changes.items():
+            df.iat[row_idx, df.columns.get_loc(col_name)] = new_val
+            
+    for new_row in state.get("added_rows", []):
+        row_data = {col: new_row.get(col, None) for col in df.columns}
+        df = pd.concat([df, pd.DataFrame([row_data])], ignore_index=True)
+        
+    deleted_indices = state.get("deleted_rows", [])
+    if deleted_indices:
+        df = df.drop(index=deleted_indices).reset_index(drop=True)
+
+    st.session_state.dati_telepass = df
+    salva_bozza_automatica()
+
+# --- VISUALIZZAZIONE SCONTRINI ---
 def mostra_anteprima_scontrino(file_obj, file_name, height=110, m_type_override=None):
     if hasattr(file_obj, 'getvalue'):
         b_data = file_obj.getvalue()
@@ -269,7 +311,7 @@ def mostra_scontrino_modal(file_obj, file_name, m_type_override=None):
         use_container_width=True
     )
 
-# --- INIZIALIZZAZIONE DATAFRAME PERMANENTI ---
+# --- INIZIALIZZAZIONE ---
 def crea_df_iniziale():
     return pd.DataFrame([{
         "Data": date.today(), 
@@ -303,7 +345,7 @@ else:
 if "dati_telepass" not in st.session_state or st.session_state.dati_telepass is None:
     st.session_state.dati_telepass = crea_df_telepass_iniziale()
 
-# --- INTESTAZIONE LOGO ---
+# --- HEADER LOGO ---
 col_logo, col_intestazione = st.columns([1, 3])
 
 with col_logo:
@@ -356,7 +398,7 @@ with col_a4:
 
 st.info(f"📌 **Nota Spese Mensile in elaborazione per il periodo:** `{st.session_state['mese_nota_spese']}`")
 
-# --- AZIONI BOZZA ---
+# --- PULSANTI DI CONTROLLO BOZZA ---
 col_salva1, col_salva2, col_salva3 = st.columns([2, 2, 2])
 with col_salva1:
     if st.button("💾 Salva Bozza Mensile", type="primary", use_container_width=True):
@@ -381,14 +423,15 @@ with col_salva3:
 
 st.divider()
 
-# --- TABELLA VOCI DI SPESA ---
+# --- TABELLA VOCI SPESA GIORNALIERE ---
 st.subheader(f"📋 1. Voci Spesa Giornaliere - {st.session_state['mese_nota_spese']}")
 
-df_edit = st.data_editor(
+st.data_editor(
     st.session_state.dati_spese_v2,
     num_rows="dynamic",
     use_container_width=True,
     key="editor_spese_stabile",
+    on_change=on_change_spese,
     column_config={
         "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
         "Comune": st.column_config.TextColumn("Comune / Note"),
@@ -400,12 +443,7 @@ df_edit = st.data_editor(
     }
 )
 
-# Sincronizzazione immediata e salvataggio automatico se il DataFrame è cambiato
-if not df_edit.equals(st.session_state.dati_spese_v2):
-    st.session_state.dati_spese_v2 = normalizza_dataframe(df_edit)
-    salva_bozza_automatica()
-
-# --- TOTALI IN TEMPO REALE ---
+# --- TOTALI E METRICHE ---
 km_totali = calcola_somma_sicura(st.session_state.dati_spese_v2, "Km")
 totale_rimborso_km = km_totali * costo_km_a
 autostrada_totale = calcola_somma_sicura(st.session_state.dati_spese_v2, "Autostrada (€)")
@@ -477,21 +515,18 @@ with col_tele2:
     with st.container(border=True):
         st.markdown("#### 💳 Spese Mensili Telepass")
         
-        df_tele_edit = st.data_editor(
+        st.data_editor(
             st.session_state.dati_telepass,
             num_rows="dynamic",
             use_container_width=True,
             key="editor_telepass_stabile",
+            on_change=on_change_telepass,
             column_config={
                 "Data": st.column_config.DateColumn("Data Spesa", format="DD/MM/YYYY"),
                 "Tratta / Descrizione": st.column_config.TextColumn("Tratta / Descrizione Spesa"),
                 "Importo (€)": st.column_config.NumberColumn("Importo (€)", min_value=0.0, format="%.2f €", default=0.0)
             }
         )
-        
-        if not df_tele_edit.equals(st.session_state.dati_telepass):
-            st.session_state.dati_telepass = df_tele_edit
-            salva_bozza_automatica()
         
         totale_telepass = calcola_somma_sicura(st.session_state.dati_telepass, "Importo (€)")
         st.metric("🔴 TOTALE SPESE TELEPASS", f"€ {totale_telepass:.2f}")
@@ -559,7 +594,7 @@ if st.session_state.dati_spese_v2 is not None and not st.session_state.dati_spes
 
 st.divider()
 
-# --- SEZIONE ALLEGATI E SCONTRINI AUTOSTRADA / VITTO / VARIE ---
+# --- CARICAMENTO ALLEGATI E SCONTRINI ---
 st.subheader(f"🧾 4. Allegati e Scontrini (Autostrada, Vitto, Varie) - {st.session_state['mese_nota_spese']}")
 
 with st.container(border=True):
@@ -608,7 +643,7 @@ with st.container(border=True):
         salva_bozza_automatica()
         st.rerun()
 
-# --- ELENCO E VISUALIZZAZIONE SCONTRINI CARICATI ---
+# --- ELENCO ALLEGATI CARICATI ---
 if st.session_state.allegati_dkv_list:
     st.markdown(f"### 📋 Elenco Scontrini / Ricevute per {st.session_state['mese_nota_spese']}")
     
@@ -659,7 +694,7 @@ if st.session_state.allegati_dkv_list:
 
 st.divider()
 
-# --- RIEPILOGO FINALE ---
+# --- RIEPILOGO GENERALE ---
 totale_generale_mese = totale_rimborso_km + autostrada_totale + vitto_totale + varie_totale + totale_telepass
 
 st.subheader(f"📊 RIEPILOGO FINALE MENSILE - {st.session_state['mese_nota_spese']}")
@@ -667,7 +702,7 @@ st.metric(f"TOTALE COMPLESSIVO SPESE DA RIMBORSARE ({st.session_state['mese_nota
 
 st.divider()
 
-# --- FIRME E APPROVAZIONE ---
+# --- FIRME ---
 st.subheader("✍️ Firma Dipendente e Approvazione Aziendale")
 
 col_firma_dip, col_firma_az = st.columns(2)
@@ -735,7 +770,7 @@ st.session_state["note_finali_user"] = note_finali
 
 st.divider()
 
-# --- DOWNLOAD CSV ---
+# --- ESPORTAZIONE CSV ---
 st.download_button(
     label=f"📥 Scarica Nota Spese {st.session_state['mese_nota_spese']} (CSV)",
     data=st.session_state.dati_spese_v2.to_csv(index=False).encode('utf-8'),
