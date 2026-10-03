@@ -26,10 +26,10 @@ COORDINATORI = [
 ]
 
 # --- FUNZIONE PER COMPRIMERE E RIDIMENSIONARE LE IMMAGINI CARICATE ---
-def ridimensiona_immagine(file_uploaded, max_size=(800, 800), qualita=80):
+def ridimensiona_immagine(file_uploaded, max_size=(600, 600), qualita=75):
     try:
         img = Image.open(file_uploaded)
-        img = img.convert("RGB") # Conversione per salvare in JPEG ed eliminare l'alpha channel se PNG
+        img = img.convert("RGB")
         img.thumbnail(max_size, Image.Resampling.LANCZOS)
         
         buffer = io.BytesIO()
@@ -38,9 +38,9 @@ def ridimensiona_immagine(file_uploaded, max_size=(800, 800), qualita=80):
         return buffer, "image/jpeg"
     except Exception:
         file_uploaded.seek(0)
-        return file_uploaded, file_uploaded.type
+        return file_uploaded, getattr(file_uploaded, "type", "application/octet-stream")
 
-# --- FUNZIONE PER NORMALIZZARE E RINOMINARE LE COLONNE VECCHIE ---
+# --- FUNZIONE PER NORMALIZZARE E RINOMINARE LE COLONNE ---
 def normalizza_dataframe(df):
     if df is None or df.empty:
         return df
@@ -71,6 +71,12 @@ def calcola_somma_sicura(df, nome_colonna):
         return pd.to_numeric(df[nome_colonna], errors='coerce').fillna(0).sum()
     return 0.0
 
+# --- FUNZIONE CALLBACK PER ELIMINARE SCONTRINO IN MODO AFFIDABILE ---
+def elimina_scontrino(index_to_remove):
+    if 0 <= index_to_remove < len(st.session_state.allegati_dkv_list):
+        st.session_state.allegati_dkv_list.pop(index_to_remove)
+        salva_bozza_automatica()
+
 # --- FUNZIONI DI SUPPORTO PER LA BOZZA ---
 def salva_bozza_automatica():
     allegati_serializzabili = []
@@ -78,7 +84,7 @@ def salva_bozza_automatica():
         allegati_serializzabili.append({
             "name": item.get("name"),
             "categoria": item.get("categoria", "Varie"),
-            "importo": item.get("importo", 0.0),
+            "importo": float(item.get("importo", 0.0)),
             "data": str(item.get("data", date.today())),
             "mese_riferimento": item.get("mese_riferimento", st.session_state.get("mese_nota_spese", ""))
         })
@@ -126,17 +132,17 @@ def carica_bozza_automatica():
         except Exception:
             pass
 
-def rimuovi_allegato(indice):
-    st.session_state.allegati_dkv_list.pop(indice)
+# --- VISUALIZZATORE ANTEPRIMA COMPATTA ---
+def mostra_anteprima_scontrino(file_obj, file_name, height=110):
+    b_data = file_obj.getvalue() if hasattr(file_obj, 'getvalue') else file_obj
+    m_type = getattr(file_obj, 'type', 'image/jpeg')
 
-# --- VISUALIZZATORE ANTEPRIMA MULTI-FORMATO ---
-def mostra_anteprima_scontrino(file_obj, file_name, file_bytes=None, mime_type=None, height=220):
-    b_data = file_obj.getvalue() if file_obj is not None else file_bytes
-    m_type = file_obj.type if hasattr(file_obj, 'type') else (mime_type or "application/octet-stream")
-
-    if m_type.startswith("image"):
-        img = Image.open(io.BytesIO(b_data))
-        st.image(img, use_container_width=True)
+    if str(m_type).startswith("image"):
+        try:
+            img = Image.open(io.BytesIO(b_data))
+            st.image(img, use_container_width=True)
+        except Exception:
+            st.info("🖼️ Immagine Scontrino")
     elif m_type == "application/pdf":
         try:
             base64_pdf = base64.b64encode(b_data).decode('utf-8')
@@ -145,15 +151,15 @@ def mostra_anteprima_scontrino(file_obj, file_name, file_bytes=None, mime_type=N
         except Exception:
             st.info("📄 Documento PDF Allegato")
     else:
-        st.info(f"📄 Documento allegato (`{file_name}`)")
+        st.info(f"📄 Allegato (`{file_name}`)")
 
 @st.dialog("🔍 Visualizzazione Ingrandita Scontrino")
-def mostra_scontrino_modal(file_obj, file_name, file_bytes=None, mime_type=None):
+def mostra_scontrino_modal(file_obj, file_name):
     st.write(f"### 📄 **{file_name}**")
-    mostra_anteprima_scontrino(file_obj, file_name, file_bytes, mime_type, height=500)
+    mostra_anteprima_scontrino(file_obj, file_name, height=450)
     
-    b_data = file_obj.getvalue() if file_obj is not None else file_bytes
-    m_type = file_obj.type if hasattr(file_obj, 'type') else (mime_type or "application/octet-stream")
+    b_data = file_obj.getvalue() if hasattr(file_obj, 'getvalue') else file_obj
+    m_type = getattr(file_obj, 'type', 'application/octet-stream')
     
     st.download_button(
         label="💾 Scarica File Originale",
@@ -163,7 +169,7 @@ def mostra_scontrino_modal(file_obj, file_name, file_bytes=None, mime_type=None)
         use_container_width=True
     )
 
-# --- INIZIALIZZAZIONE STRUTTURA DATI ---
+# --- INIZIALIZZAZIONE DATI ---
 def crea_df_iniziale():
     return pd.DataFrame([{
         "Data": date.today(), 
@@ -187,7 +193,7 @@ if "dati_spese_v2" not in st.session_state:
 else:
     st.session_state.dati_spese_v2 = normalizza_dataframe(st.session_state.dati_spese_v2)
 
-# --- INTESTAZIONE CON LOGO ---
+# --- INTESTAZIONE LOGO ---
 col_logo, col_intestazione = st.columns([1, 3])
 
 with col_logo:
@@ -209,7 +215,7 @@ with col_intestazione:
 
 st.divider()
 
-# --- ANAGRAFICA E MESE DI RIFERIMENTO ---
+# --- ANAGRAFICA ---
 st.subheader("👤 Anagrafica e Periodo di Riferimento")
 
 col_a1, col_a2, col_a3, col_a4 = st.columns([2, 2, 3, 2])
@@ -240,7 +246,7 @@ with col_a4:
 
 st.info(f"📌 **Nota Spese Mensile in elaborazione per il periodo:** `{st.session_state['mese_nota_spese']}`")
 
-# --- BARRA AZIONI BOZZA ---
+# --- AZIONI BOZZA ---
 col_salva1, col_salva2, col_salva3 = st.columns([2, 2, 2])
 with col_salva1:
     if st.button("💾 Salva Bozza Mensile", type="primary", use_container_width=True):
@@ -261,11 +267,10 @@ with col_salva3:
 
 st.divider()
 
-# --- TABELLA PRINCIPALE VOCI DI SPESA ---
+# --- TABELLA VOCI DI SPESA ---
 st.subheader(f"📋 1. Voci Spesa Giornaliere - {st.session_state['mese_nota_spese']}")
 
 df_da_mostrare = normalizza_dataframe(st.session_state.dati_spese_v2)
-
 editor_key = f"editor_{st.session_state['mese_nota_spese'].replace(' ', '_')}"
 
 df_edit = st.data_editor(
@@ -286,7 +291,7 @@ df_edit = st.data_editor(
 
 st.session_state.dati_spese_v2 = df_edit
 
-# --- CALCOLO E AGGIORNAMENTO TOTALI IN TEMPO REALE ---
+# --- TOTALI IN TEMPO REALE ---
 km_totali = calcola_somma_sicura(df_edit, "Km")
 totale_rimborso_km = km_totali * costo_km_a
 autostrada_totale = calcola_somma_sicura(df_edit, "Autostrada (€)")
@@ -301,7 +306,7 @@ c_tot4.metric("Totale Varie", f"€ {varie_totale:.2f}")
 
 st.divider()
 
-# --- SEZIONE SINTESI REFERENTI (TABELLA PIVOT PER COORDINATORE) ---
+# --- SINTESI REFERENTI ---
 st.subheader("📊 2. Sintesi Referenti e Coordinatori")
 st.caption("Resoconto aggregato per Coordinatore (Km, Rimborso Km, Autostrade, Vitto, Varie e Totale (€)).")
 
@@ -363,7 +368,7 @@ if not df_edit.empty:
 
 st.divider()
 
-# --- GESTIONE ALLEGATI E SCONTRINI CON RIDIMENSIONAMENTO AUTOMATICO ---
+# --- SEZIONE ALLEGATI E SCONTRINI ---
 st.subheader(f"🧾 3. Allegati e Scontrini - {st.session_state['mese_nota_spese']}")
 
 with st.container(border=True):
@@ -389,10 +394,10 @@ with st.container(border=True):
         data_scontrino_sel = st.date_input("Data Scontrino", value=date.today(), key="data_scontrino_uploader")
         
     with col_up4:
-        importo_scontrino_sel = st.number_input("Importo (€)", min_value=0.0, step=0.50, format="%.2f", key="importo_scontrino_uploader")
+        importo_scontrino_sel = st.number_input("Importo (€)", min_value=0.0, value=0.0, step=0.50, format="%.2f", key="importo_scontrino_uploader")
 
     nuovi_file = st.file_uploader(
-        "📎 Seleziona Scontrini (JPG, PNG, PDF) - *Verranno ottimizzati automaticamente*",
+        "📎 Seleziona Scontrini (JPG, PNG, PDF)",
         type=["jpg", "jpeg", "png", "pdf"],
         accept_multiple_files=True,
         key="nuovi_scontrini_uploader"
@@ -401,7 +406,6 @@ with st.container(border=True):
     if nuovi_file:
         for f_item in nuovi_file:
             if f_item.name not in [x["name"] for x in st.session_state.allegati_dkv_list]:
-                # Se è un'immagine, la ridimensiona e comprime subito per alleggerire la memoria
                 if f_item.type.startswith("image"):
                     file_processato, m_type = ridimensiona_immagine(f_item)
                     file_processato.type = m_type
@@ -416,10 +420,11 @@ with st.container(border=True):
                     "data": data_scontrino_sel,
                     "mese_riferimento": st.session_state["mese_nota_spese"]
                 })
+        salva_bozza_automatica()
 
-# MOSTRA GLI SCONTRINI CARICATI
+# --- MOSTRA ELENCO SCONTRINI (COMPATTO 4 COLONNE) ---
 if st.session_state.allegati_dkv_list:
-    st.markdown(f"### 🖼 Elenco Scontrini per {st.session_state['mese_nota_spese']}")
+    st.markdown(f"### 🏴‍☠️ Elenco Scontrini per {st.session_state['mese_nota_spese']}")
     
     elementi_mese = [
         (idx, item) for idx, item in enumerate(st.session_state.allegati_dkv_list)
@@ -427,9 +432,11 @@ if st.session_state.allegati_dkv_list:
     ]
     
     if elementi_mese:
-        cols_foto = st.columns(3)
+        # Layout a 4 colonne per ridurre l'altezza complessiva
+        cols_foto = st.columns(4)
+        
         for grid_idx, (real_idx, item) in enumerate(elementi_mese):
-            with cols_foto[grid_idx % 3]:
+            with cols_foto[grid_idx % 4]:
                 file_obj = item["file"]
                 file_name = item["name"]
                 cat_curr = item.get("categoria", "Varie")
@@ -437,19 +444,38 @@ if st.session_state.allegati_dkv_list:
                 data_curr = item.get("data", date.today())
                 
                 with st.container(border=True):
-                    st.markdown(f"🏷️ **{cat_curr.upper()}** | 📅 `{data_curr}`")
-                    st.markdown(f"💶 **Importo:** € `{imp_curr:.2f}`")
+                    st.caption(f"🏷️ **{cat_curr.upper()}** | 📅 `{data_curr}`")
                     
-                    mostra_anteprima_scontrino(file_obj, file_name, height=220)
+                    # Campo modificabile per aggiustare l'importo al volo
+                    nuovo_imp = st.number_input(
+                        "Importo (€)",
+                        min_value=0.0,
+                        value=float(imp_curr),
+                        step=0.50,
+                        format="%.2f",
+                        key=f"imp_edit_{real_idx}_{file_name}"
+                    )
+                    st.session_state.allegati_dkv_list[real_idx]["importo"] = nuovo_imp
                     
-                    if st.button("🔍 Ingrandisci", key=f"zoom_{real_idx}_{file_name}", use_container_width=True):
-                        mostra_scontrino_modal(file_obj, file_name)
-                        
-                    st.button("🗑 Elimina", key=f"del_{real_idx}_{file_name}", on_click=rimuovi_allegato, args=(real_idx,), use_container_width=True)
+                    # Anteprima compatta (altezza 110px)
+                    mostra_anteprima_scontrino(file_obj, file_name, height=110)
+                    
+                    col_b1, col_b2 = st.columns(2)
+                    with col_b1:
+                        if st.button("🔍 Ingrandisci", key=f"zoom_{real_idx}_{file_name}", use_container_width=True):
+                            mostra_scontrino_modal(file_obj, file_name)
+                    with col_b2:
+                        st.button(
+                            "🗑 Elimina",
+                            key=f"del_{real_idx}_{file_name}",
+                            on_click=elimina_scontrino,
+                            args=(real_idx,),
+                            use_container_width=True
+                        )
 
 st.divider()
 
-# --- RIEPILOGO FINALE GENERALE MENSILE ---
+# --- RIEPILOGO FINALE ---
 totale_generale_mese = totale_rimborso_km + autostrada_totale + vitto_totale + varie_totale
 
 st.subheader(f"📊 RIEPILOGO FINALE MENSILE - {st.session_state['mese_nota_spese']}")
@@ -457,7 +483,7 @@ st.metric(f"TOTALE COMPLESSIVO SPESE DA RIMBORSARE ({st.session_state['mese_nota
 
 st.divider()
 
-# --- SEZIONE FIRMA CON CARICAMENTO FILE ---
+# --- FIRME E APPROVAZIONE ---
 st.subheader("✍️ Firma Dipendente e Approvazione Aziendale")
 
 col_firma_dip, col_firma_az = st.columns(2)
@@ -465,7 +491,6 @@ col_firma_dip, col_firma_az = st.columns(2)
 with col_firma_dip:
     with st.container(border=True):
         st.markdown("#### 👤 Firma Dipendente (da File)")
-        st.caption("Carica l'immagine o il file con la tua firma (PNG, JPG, PDF)")
         
         file_firma = st.file_uploader(
             "📁 Carica File Firma Dipendente",
@@ -475,18 +500,13 @@ with col_firma_dip:
         
         if file_firma is not None:
             st.success("✅ Firma caricata correttamente!")
-            if file_firma.type.startswith("image"):
-                file_firma_proc, _ = ridimensiona_immagine(file_firma, max_size=(400, 200))
-                mostra_anteprima_scontrino(file_firma_proc, file_firma.name, height=120)
-            else:
-                mostra_anteprima_scontrino(file_firma, file_firma.name, height=120)
+            mostra_anteprima_scontrino(file_firma, file_firma.name, height=100)
             
         data_firma_dip = st.date_input("Data Firma Dipendente", value=date.today(), key="data_firma_dip_input")
 
 with col_firma_az:
     with st.container(border=True):
         st.markdown("#### 🏢 Approvazione Winner Soc. Coop.")
-        st.caption("Spazio riservato alla direzione / amministrazione.")
         
         st.selectbox(
             "Stato Approvazione:",
@@ -502,21 +522,16 @@ with col_firma_az:
         
         if file_firma_resp is not None:
             st.success("✅ Firma Responsabile caricata!")
-            if file_firma_resp.type.startswith("image"):
-                file_resp_proc, _ = ridimensiona_immagine(file_firma_resp, max_size=(400, 200))
-                mostra_anteprima_scontrino(file_resp_proc, file_firma_resp.name, height=120)
-            else:
-                mostra_anteprima_scontrino(file_firma_resp, file_firma_resp.name, height=120)
+            mostra_anteprima_scontrino(file_firma_resp, file_firma_resp.name, height=100)
             
         st.date_input("Data Approvazione", value=date.today(), key="data_approvazione_input")
 
-# --- NOTE E CONFERMA ---
 note_finali = st.text_area("📝 Note / Comunicazioni per l'Amministrazione", value=st.session_state.get("note_finali_user", ""), key="note_finali_input")
 st.session_state["note_finali_user"] = note_finali
 
 st.divider()
 
-# --- DOWNLOAD FINALE ---
+# --- DOWNLOAD CSV ---
 st.download_button(
     label=f"📥 Scarica Nota Spese {st.session_state['mese_nota_spese']} (CSV)",
     data=df_edit.to_csv(index=False).encode('utf-8'),
