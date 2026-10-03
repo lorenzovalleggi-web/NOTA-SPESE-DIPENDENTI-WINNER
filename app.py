@@ -24,7 +24,7 @@ COORDINATORI = [
     "Coordinatore Migliaccio", "Coordinatore Piccinetti", "Coordinatore Vendemini", "Coordinatore Stella"
 ]
 
-# --- FUNZIONE PER NORMALIZZARE E RINOMINARE LE COLONNE VECCHIE (_A / _B) ---
+# --- FUNZIONE PER NORMALIZZARE E RINOMINARE LE COLONNE VECCHIE ---
 def normalizza_dataframe(df):
     if df is None or df.empty:
         return df
@@ -156,7 +156,7 @@ def crea_df_iniziale():
     return pd.DataFrame([{
         "Data": date.today(), 
         "Comune": "Come da Planning Allegato",
-        "Coordinatore": "", 
+        "Coordinatore": "Coordinatore Bruscolini", 
         "Km": 143, 
         "Autostrada (€)": 7.40,
         "Vitto (€)": 0.0, 
@@ -289,8 +289,74 @@ c_tot4.metric("Totale Varie", f"€ {varie_totale:.2f}")
 
 st.divider()
 
+# --- SEZIONE SINTESI REFERENTI (TABELLA PIVOT PER COORDINATORE) ---
+st.subheader("📊 2. Sintesi Referenti e Coordinatori")
+st.caption("Resoconto aggregato per Coordinatore (Km, Rimborso Km, Autostrade, Vitto, Varie e Totale (€)).")
+
+if not df_edit.empty:
+    df_pivot = df_edit.copy()
+    
+    # Conversione numerica sicura delle colonne
+    df_pivot["Km"] = pd.to_numeric(df_pivot["Km"], errors='coerce').fillna(0)
+    df_pivot["Tot. Km/€"] = df_pivot["Km"] * costo_km_a
+    df_pivot["Autostrade"] = pd.to_numeric(df_pivot["Autostrada (€)"], errors='coerce').fillna(0)
+    df_pivot["Vitto"] = pd.to_numeric(df_pivot["Vitto (€)"], errors='coerce').fillna(0)
+    df_pivot["Varie"] = pd.to_numeric(df_pivot["Varie (€)"], errors='coerce').fillna(0)
+    df_pivot["Totale €"] = df_pivot["Tot. Km/€"] + df_pivot["Autostrade"] + df_pivot["Vitto"] + df_pivot["Varie"]
+    
+    # Raggruppamento per Coordinatore
+    df_grouped = df_pivot.groupby("Coordinatore", as_index=False).agg({
+        "Km": "sum",
+        "Tot. Km/€": "sum",
+        "Autostrade": "sum",
+        "Vitto": "sum",
+        "Varie": "sum",
+        "Totale €": "sum"
+    })
+    
+    # Rinomina della prima colonna come nell'immagine Excel
+    df_grouped = df_grouped.rename(columns={
+        "Coordinatore": "Etichette di riga",
+        "Km": "Somma di Km",
+        "Tot. Km/€": "Somma di Tot. Km/€",
+        "Autostrade": "Somma di Autostrade",
+        "Vitto": "Somma di Vitto",
+        "Varie": "Somma di Varie",
+        "Totale €": "Somma di Totale €"
+    })
+    
+    # Aggiunta riga Totale Complessivo
+    riga_totale = pd.DataFrame([{
+        "Etichette di riga": "Totale complessivo",
+        "Somma di Km": df_grouped["Somma di Km"].sum(),
+        "Somma di Tot. Km/€": df_grouped["Somma di Tot. Km/€"].sum(),
+        "Somma di Autostrade": df_grouped["Somma di Autostrade"].sum(),
+        "Somma di Vitto": df_grouped["Somma di Vitto"].sum(),
+        "Somma di Varie": df_grouped["Somma di Varie"].sum(),
+        "Somma di Totale €": df_grouped["Somma di Totale €"].sum()
+    }])
+    
+    df_sintesi_finale = pd.concat([df_grouped, riga_totale], ignore_index=True)
+    
+    st.dataframe(
+        df_sintesi_finale,
+        use_container_width=True,
+        column_config={
+            "Etichette di riga": st.column_config.TextColumn("Etichette di riga"),
+            "Somma di Km": st.column_config.NumberColumn("Somma di Km", format="%d"),
+            "Somma di Tot. Km/€": st.column_config.NumberColumn("Somma di Tot. Km/€", format="%.2f €"),
+            "Somma di Autostrade": st.column_config.NumberColumn("Somma di Autostrade", format="%.2f €"),
+            "Somma di Vitto": st.column_config.NumberColumn("Somma di Vitto", format="%.2f €"),
+            "Somma di Varie": st.column_config.NumberColumn("Somma di Varie", format="%.2f €"),
+            "Somma di Totale €": st.column_config.NumberColumn("Somma di Totale €", format="%.2f €")
+        },
+        hide_index=True
+    )
+
+st.divider()
+
 # --- GESTIONE ALLEGATI E SCONTRINI ---
-st.subheader(f"🧾 2. Allegati e Scontrini - {st.session_state['mese_nota_spese']}")
+st.subheader(f"🧾 3. Allegati e Scontrini - {st.session_state['mese_nota_spese']}")
 
 with st.container(border=True):
     st.markdown("#### ➕ Carica Scontrino per questo Mese")
