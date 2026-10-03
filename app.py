@@ -110,7 +110,6 @@ def normalizza_dataframe(df):
     if cols_da_rimuovere:
         df = df.drop(columns=cols_da_rimuovere, errors="ignore")
 
-    # Assicurati che la colonna Data sia formattata correttamente come datetime.date
     if "Data" in df.columns:
         df["Data"] = df["Data"].apply(assicura_formato_data)
         
@@ -241,65 +240,6 @@ def carica_bozza_automatica():
 
         except Exception:
             pass
-
-# --- FUNZIONI DI CALLBACK ---
-def on_change_spese():
-    state = st.session_state.editor_spese_stabile
-    df = st.session_state.dati_spese_v2.copy()
-    
-    # Gestione modifiche celle
-    for row_idx, changes in state.get("edited_rows", {}).items():
-        for col_name, new_val in changes.items():
-            if col_name == "Data":
-                new_val = assicura_formato_data(new_val)
-            df.iat[row_idx, df.columns.get_loc(col_name)] = new_val
-            
-    # Gestione righe aggiunte
-    for new_row in state.get("added_rows", []):
-        row_data = {}
-        for col in df.columns:
-            val = new_row.get(col, None)
-            if col == "Data":
-                val = assicura_formato_data(val)
-            row_data[col] = val
-        df = pd.concat([df, pd.DataFrame([row_data])], ignore_index=True)
-        
-    # Gestione righe eliminate
-    deleted_indices = state.get("deleted_rows", [])
-    if deleted_indices:
-        df = df.drop(index=deleted_indices).reset_index(drop=True)
-
-    st.session_state.dati_spese_v2 = normalizza_dataframe(df)
-    salva_bozza_automatica()
-
-def on_change_telepass():
-    state = st.session_state.editor_telepass_stabile
-    df = st.session_state.dati_telepass.copy()
-    
-    for row_idx, changes in state.get("edited_rows", {}).items():
-        for col_name, new_val in changes.items():
-            if col_name == "Data":
-                new_val = assicura_formato_data(new_val)
-            df.iat[row_idx, df.columns.get_loc(col_name)] = new_val
-            
-    for new_row in state.get("added_rows", []):
-        row_data = {}
-        for col in df.columns:
-            val = new_row.get(col, None)
-            if col == "Data":
-                val = assicura_formato_data(val)
-            row_data[col] = val
-        df = pd.concat([df, pd.DataFrame([row_data])], ignore_index=True)
-        
-    deleted_indices = state.get("deleted_rows", [])
-    if deleted_indices:
-        df = df.drop(index=deleted_indices).reset_index(drop=True)
-
-    if "Data" in df.columns:
-        df["Data"] = df["Data"].apply(assicura_formato_data)
-        
-    st.session_state.dati_telepass = df
-    salva_bozza_automatica()
 
 # --- VISUALIZZAZIONE SCONTRINI ---
 def mostra_anteprima_scontrino(file_obj, file_name, height=110, m_type_override=None):
@@ -444,7 +384,7 @@ col_salva1, col_salva2, col_salva3 = st.columns([2, 2, 2])
 with col_salva1:
     if st.button("💾 Salva Bozza Mensile", type="primary", use_container_width=True):
         salva_bozza_automatica()
-        st.success(f"Bozza per **{st.session_state['mese_nota_spese']}** salvata!")
+        st.success(f"Bozza per **{st.session_state['mese_nota_spese']}** salvata correttamente!")
 with col_salva2:
     if st.button("🔄 Ripristina Dati Salvati", use_container_width=True):
         carica_bozza_automatica()
@@ -467,12 +407,12 @@ st.divider()
 # --- TABELLA VOCI SPESA GIORNALIERE ---
 st.subheader(f"📋 1. Voci Spesa Giornaliere - {st.session_state['mese_nota_spese']}")
 
-st.data_editor(
+# L'editor permette la compilazione di più celle/righe senza ricaricare la pagina ad ogni invio
+spese_modificate = st.data_editor(
     st.session_state.dati_spese_v2,
     num_rows="dynamic",
     use_container_width=True,
     key="editor_spese_stabile",
-    on_change=on_change_spese,
     column_config={
         "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY", default=date.today()),
         "Comune": st.column_config.TextColumn("Comune / Note"),
@@ -483,6 +423,9 @@ st.data_editor(
         "Varie (€)": st.column_config.NumberColumn("Varie (€)", min_value=0.0, format="%.2f €", default=0.0),
     }
 )
+
+# Aggiornamento fluido del DataFrame nello stato di sessione
+st.session_state.dati_spese_v2 = normalizza_dataframe(spese_modificate)
 
 # --- TOTALI E METRICHE ---
 km_totali = calcola_somma_sicura(st.session_state.dati_spese_v2, "Km")
@@ -556,18 +499,20 @@ with col_tele2:
     with st.container(border=True):
         st.markdown("#### 💳 Spese Mensili Telepass")
         
-        st.data_editor(
+        telepass_modificato = st.data_editor(
             st.session_state.dati_telepass,
             num_rows="dynamic",
             use_container_width=True,
             key="editor_telepass_stabile",
-            on_change=on_change_telepass,
             column_config={
                 "Data": st.column_config.DateColumn("Data Spesa", format="DD/MM/YYYY", default=date.today()),
                 "Tratta / Descrizione": st.column_config.TextColumn("Tratta / Descrizione Spesa"),
                 "Importo (€)": st.column_config.NumberColumn("Importo (€)", min_value=0.0, format="%.2f €", default=0.0)
             }
         )
+        if "Data" in telepass_modificato.columns:
+            telepass_modificato["Data"] = telepass_modificato["Data"].apply(assicura_formato_data)
+        st.session_state.dati_telepass = telepass_modificato
         
         totale_telepass = calcola_somma_sicura(st.session_state.dati_telepass, "Importo (€)")
         st.metric("🔴 TOTALE SPESE TELEPASS", f"€ {totale_telepass:.2f}")
