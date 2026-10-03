@@ -233,13 +233,17 @@ df_edit = st.data_editor(
 # Sincronizziamo lo stato con le modifiche apportate dall'utente
 st.session_state.dati_spese_v2 = df_edit.copy()
 
-# --- CALCOLO TOTALI IN TEMPO REALE ---
-km_totali = pd.to_numeric(df_edit.get("Km", 0), errors='coerce').fillna(0).sum()
-totale_rimborso_km = km_totali * costo_km_a
-autostrada_totale = pd.to_numeric(df_edit.get("Autostrada (€)", 0), errors='coerce').fillna(0).sum()
-vitto_totale = pd.to_numeric(df_edit.get("Vitto (€)", 0), errors='coerce').fillna(0).sum()
-varie_totale = pd.to_numeric(df_edit.get("Varie (€)", 0), errors='coerce').fillna(0).sum()
+# --- CALCOLO TOTALI IN TEMPO REALE (SICURO DA ERRORI ATTRIBUTEERROR) ---
+def calcola_somma_sicura(df, nome_colonna):
+    if nome_colonna in df.columns:
+        return pd.to_numeric(df[nome_colonna], errors='coerce').fillna(0).sum()
+    return 0.0
 
+km_totali = calcola_somma_sicura(df_edit, "Km")
+totale_rimborso_km = km_totali * costo_km_a
+autostrada_totale = calcola_somma_sicura(df_edit, "Autostrada (€)")
+vitto_totale = calcola_somma_sicura(df_edit, "Vitto (€)")
+varie_totale = calcola_somma_sicura(df_edit, "Varie (€)")
 # Card Riepilogo parziale tabella
 c_tot1, c_tot2, c_tot3, c_tot4 = st.columns(4)
 c_tot1.metric("Totale Km", f"{km_totali:.0f} Km", f"€ {totale_rimborso_km:.2f}")
