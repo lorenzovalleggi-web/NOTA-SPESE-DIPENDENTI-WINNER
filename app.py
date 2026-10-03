@@ -90,12 +90,12 @@ def file_to_base64(file_obj):
     if file_obj is None:
         return None, None
     try:
-        if hasattr(file_obj, 'getvalue'):
-            bytes_data = file_obj.getvalue()
-            m_type = getattr(file_obj, 'type', 'image/jpeg')
-        elif isinstance(file_obj, bytes):
+        if isinstance(file_obj, bytes):
             bytes_data = file_obj
             m_type = 'image/jpeg'
+        elif hasattr(file_obj, 'getvalue'):
+            bytes_data = file_obj.getvalue()
+            m_type = getattr(file_obj, 'type', 'image/jpeg')
         else:
             return None, None
             
@@ -127,10 +127,10 @@ def ridimensiona_immagine(file_uploaded, max_size=(600, 600), qualita=75):
         img.save(buffer, format="JPEG", quality=qualita, optimize=True)
         return buffer.getvalue(), "image/jpeg"
     except Exception:
-        if hasattr(file_uploaded, 'getvalue'):
-            return file_uploaded.getvalue(), getattr(file_uploaded, "type", "application/octet-stream")
-        elif isinstance(file_uploaded, bytes):
+        if isinstance(file_uploaded, bytes):
             return file_uploaded, "application/octet-stream"
+        elif hasattr(file_uploaded, 'getvalue'):
+            return file_uploaded.getvalue(), getattr(file_uploaded, "type", "application/octet-stream")
         return None, "application/octet-stream"
 
 # --- NORMALIZZAZIONE DATAFRAME ---
@@ -284,12 +284,12 @@ def carica_bozza_automatica():
 
 # --- VISUALIZZAZIONE SCONTRINI ---
 def mostra_anteprima_scontrino(file_obj, file_name, height=110, m_type_override=None):
-    if hasattr(file_obj, 'getvalue'):
-        b_data = file_obj.getvalue()
-        m_type = getattr(file_obj, 'type', 'image/jpeg')
-    elif isinstance(file_obj, bytes):
+    if isinstance(file_obj, bytes):
         b_data = file_obj
         m_type = m_type_override or 'image/jpeg'
+    elif hasattr(file_obj, 'getvalue'):
+        b_data = file_obj.getvalue()
+        m_type = getattr(file_obj, 'type', 'image/jpeg')
     else:
         st.info(f"📄 Allegato (`{file_name}`)")
         return
@@ -315,12 +315,14 @@ def mostra_scontrino_modal(file_obj, file_name, m_type_override=None):
     st.write(f"### 📄 **{file_name}**")
     mostra_anteprima_scontrino(file_obj, file_name, height=450, m_type_override=m_type_override)
     
-    if hasattr(file_obj, 'getvalue'):
+    if isinstance(file_obj, bytes):
+        b_data = file_obj
+        m_type = m_type_override or 'application/octet-stream'
+    elif hasattr(file_obj, 'getvalue'):
         b_data = file_obj.getvalue()
         m_type = getattr(file_obj, 'type', 'application/octet-stream')
     else:
-        b_data = file_obj
-        m_type = m_type_override or 'application/octet-stream'
+        return
     
     st.download_button(
         label="💾 Scarica File Originale",
@@ -436,7 +438,7 @@ st.subheader(f"📋 1. Voci Spesa Giornaliere - Mese Completo ({st.session_state
 
 spese_modificate = st.data_editor(
     st.session_state.dati_spese_v2,
-    num_rows="fixed",  # Righe fisse per tutto il mese
+    num_rows="fixed",
     use_container_width=True,
     key="editor_spese_stabile",
     column_config={
@@ -634,6 +636,7 @@ with st.container(border=True):
     )
 
     if nuovi_file:
+        file_aggiunti = False
         for f_item in nuovi_file:
             if f_item.name not in [x["name"] for x in st.session_state.allegati_dkv_list]:
                 if f_item.type.startswith("image"):
@@ -651,8 +654,11 @@ with st.container(border=True):
                     "data": str(data_scontrino_sel),
                     "mese_riferimento": st.session_state["mese_nota_spese"]
                 })
-        salva_bozza_automatica()
-        st.rerun()
+                file_aggiunti = True
+        
+        if file_aggiunti:
+            salva_bozza_automatica()
+            st.rerun()
 
 # --- ELENCO ALLEGATI CARICATI ---
 if st.session_state.allegati_dkv_list:
