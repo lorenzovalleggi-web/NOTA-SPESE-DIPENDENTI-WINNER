@@ -22,6 +22,12 @@ COORDINATORI = [
     "Coordinatore Migliaccio", "Coordinatore Piccinetti", "Coordinatore Vendemini", "Coordinatore Stella"
 ]
 
+# --- FUNZIONE SICURA PER CALCOLARE LA SOMMA DELLE COLONNE ---
+def calcola_somma_sicura(df, nome_colonna):
+    if nome_colonna in df.columns:
+        return pd.to_numeric(df[nome_colonna], errors='coerce').fillna(0).sum()
+    return 0.0
+
 # --- FUNZIONI DI SUPPORTO PER LA BOZZA ---
 def salva_bozza_automatica():
     allegati_serializzabili = []
@@ -34,12 +40,15 @@ def salva_bozza_automatica():
             "mese_riferimento": item.get("mese_riferimento", st.session_state.get("mese_nota_spese", ""))
         })
 
-    # Convertiamo le date in stringa per la serializzazione JSON
     spese_dict = []
     if "dati_spese_v2" in st.session_state and not st.session_state.dati_spese_v2.empty:
         df_temp = st.session_state.dati_spese_v2.copy()
         if "Data" in df_temp.columns:
             df_temp["Data"] = df_temp["Data"].astype(str)
+        # Rimuoviamo eventuali vecchie colonne B dal JSON di salvataggio
+        cols_b = [c for c in df_temp.columns if "B" in c]
+        if cols_b:
+            df_temp = df_temp.drop(columns=cols_b, errors="ignore")
         spese_dict = df_temp.to_dict(orient="records")
 
     dati_da_salvare = {
@@ -70,6 +79,10 @@ def carica_bozza_automatica():
                     df_spese = pd.DataFrame(dati["spese"])
                     if "Data" in df_spese.columns:
                         df_spese["Data"] = pd.to_datetime(df_spese["Data"]).dt.date
+                    # Elimina eventuali colonne B residue
+                    cols_b = [c for c in df_spese.columns if "_B" in c or " B" in c]
+                    if cols_b:
+                        df_spese = df_spese.drop(columns=cols_b, errors="ignore")
                     st.session_state.dati_spese_v2 = df_spese
         except Exception:
             pass
@@ -115,7 +128,7 @@ def mostra_scontrino_modal(file_obj, file_name, file_bytes=None, mime_type=None)
         use_container_width=True
     )
 
-# --- INIZIALIZZAZIONE STRUTTURA DATI ---
+# --- INIZIALIZZAZIONE STRUTTURA DATI (SOLO CATEGORIA UNICA / A) ---
 def crea_df_iniziale():
     return pd.DataFrame([{
         "Data": date.today(), 
@@ -186,7 +199,7 @@ with col_a3:
     st.session_state["mese_nota_spese"] = mese_selezionato
 
 with col_a4:
-    costo_km_a = st.number_input("Rimborso Km Cat. A (€)", value=0.25, disabled=True)
+    costo_km_a = st.number_input("Rimborso Km (€)", value=0.25, disabled=True)
 
 st.info(f"📌 **Nota Spese Mensile in elaborazione per il periodo:** `{st.session_state['mese_nota_spese']}`")
 
@@ -210,10 +223,9 @@ with col_salva3:
 
 st.divider()
 
-# --- TABELLA PRINCIPALE VOCI DI SPESA ---
+# --- TABELLA PRINCIPALE VOCI DI SPESA (NO CATEGORIA B) ---
 st.subheader(f"📋 1. Voci Spesa Giornaliere - {st.session_state['mese_nota_spese']}")
 
-# Passiamo direttamente il DataFrame senza colonne modificate al volo per evitare reset
 df_edit = st.data_editor(
     st.session_state.dati_spese_v2,
     num_rows="dynamic",
@@ -233,17 +245,13 @@ df_edit = st.data_editor(
 # Sincronizziamo lo stato con le modifiche apportate dall'utente
 st.session_state.dati_spese_v2 = df_edit.copy()
 
-# --- CALCOLO TOTALI IN TEMPO REALE (SICURO DA ERRORI ATTRIBUTEERROR) ---
-def calcola_somma_sicura(df, nome_colonna):
-    if nome_colonna in df.columns:
-        return pd.to_numeric(df[nome_colonna], errors='coerce').fillna(0).sum()
-    return 0.0
-
+# --- CALCOLO TOTALI IN TEMPO REALE CON FUNZIONE SICURA ---
 km_totali = calcola_somma_sicura(df_edit, "Km")
 totale_rimborso_km = km_totali * costo_km_a
 autostrada_totale = calcola_somma_sicura(df_edit, "Autostrada (€)")
 vitto_totale = calcola_somma_sicura(df_edit, "Vitto (€)")
 varie_totale = calcola_somma_sicura(df_edit, "Varie (€)")
+
 # Card Riepilogo parziale tabella
 c_tot1, c_tot2, c_tot3, c_tot4 = st.columns(4)
 c_tot1.metric("Totale Km", f"{km_totali:.0f} Km", f"€ {totale_rimborso_km:.2f}")
@@ -302,7 +310,7 @@ with st.container(border=True):
 
 # MOSTRA GLI SCONTRINI CARICATI
 if st.session_state.allegati_dkv_list:
-    st.markdown(f"### 🖼️️ Elenco Scontrini per {st.session_state['mese_nota_spese']}")
+    st.markdown(f"### 🖼 Elenco Scontrini per {st.session_state['mese_nota_spese']}")
     
     elementi_mese = [
         (idx, item) for idx, item in enumerate(st.session_state.allegati_dkv_list)
