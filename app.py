@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+import calendar
 from PIL import Image
 import os
 import json
@@ -43,6 +44,47 @@ def assicura_formato_data(val):
             return date.today()
     return date.today()
 
+# --- FUNZIONE PER GENERARE / AGGIORNARE IL MESE COMPLETO ---
+def genera_df_mese_completo(str_mese_anno, df_esistente=None):
+    try:
+        parti = str_mese_anno.split()
+        nome_mese = parti[0]
+        anno = int(parti[1])
+        idx_mese = MESI_ANNO.index(nome_mese) + 1
+    except Exception:
+        idx_mese = date.today().month
+        anno = date.today().year
+
+    num_giorni = calendar.monthrange(anno, idx_mese)[1]
+    
+    # Mappa dati esistenti per data
+    mappa_dati = {}
+    if df_esistente is not None and not df_esistente.empty:
+        for _, row in df_esistente.iterrows():
+            d_val = assicura_formato_data(row.get("Data"))
+            mappa_dati[d_val] = row
+
+    righe = []
+    for g in range(1, num_giorni + 1):
+        cur_date = date(anno, idx_mese, g)
+        if cur_date in mappa_dati:
+            r = mappa_dati[cur_date].to_dict()
+            r["Data"] = cur_date
+            righe.append(r)
+        else:
+            righe.append({
+                "Data": cur_date,
+                "Comune": "",
+                "Coordinatore": "",
+                "Km": 0,
+                "Autostrada (€)": 0.0,
+                "Vitto (€)": 0.0,
+                "Varie (€)": 0.0
+            })
+            
+    df_res = pd.DataFrame(righe)
+    return normalizza_dataframe(df_res)
+
 # --- CONVERSIONE FILE IN BASE64 ---
 def file_to_base64(file_obj):
     if file_obj is None:
@@ -70,7 +112,7 @@ def base64_to_bytes(b64_str):
     except Exception:
         return None
 
-# --- FUNZIONE PER RIDIMENSIONARE IMMAGINI ---
+# --- RIDIMENSIONAMENTO IMMAGINI ---
 def ridimensiona_immagine(file_uploaded, max_size=(600, 600), qualita=75):
     try:
         if isinstance(file_uploaded, bytes):
@@ -94,8 +136,7 @@ def ridimensiona_immagine(file_uploaded, max_size=(600, 600), qualita=75):
 # --- NORMALIZZAZIONE DATAFRAME ---
 def normalizza_dataframe(df):
     if df is None or df.empty:
-        df = pd.DataFrame(columns=["Data", "Comune", "Coordinatore", "Km", "Autostrada (€)", "Vitto (€)", "Varie (€)"])
-        return df
+        return pd.DataFrame(columns=["Data", "Comune", "Coordinatore", "Km", "Autostrada (€)", "Vitto (€)", "Varie (€)"])
     
     mappa_colonne = {
         "Km_A": "Km",
@@ -131,7 +172,7 @@ def elimina_telepass():
     st.session_state.pop("telepass_file_name", None)
     salva_bozza_automatica()
 
-# --- FUNZIONI PER SALVATAGGIO E CARICAMENTO BOZZA ---
+# --- FUNZIONI BOZZA ---
 def salva_bozza_automatica():
     allegati_serializzabili = []
     for item in st.session_state.get("allegati_dkv_list", []):
@@ -290,24 +331,6 @@ def mostra_scontrino_modal(file_obj, file_name, m_type_override=None):
     )
 
 # --- INIZIALIZZAZIONE ---
-def crea_df_iniziale():
-    return pd.DataFrame([{
-        "Data": date.today(), 
-        "Comune": "Come da Planning Allegato",
-        "Coordinatore": "Coordinatore Bruscolini", 
-        "Km": 143, 
-        "Autostrada (€)": 7.40,
-        "Vitto (€)": 0.0, 
-        "Varie (€)": 0.0
-    }])
-
-def crea_df_telepass_iniziale():
-    return pd.DataFrame([{
-        "Data": date.today(),
-        "Tratta / Descrizione": "Tratta Milano - Bologna",
-        "Importo (€)": 0.0
-    }])
-
 if "primo_avvio" not in st.session_state:
     carica_bozza_automatica()
     st.session_state["primo_avvio"] = False
@@ -315,13 +338,21 @@ if "primo_avvio" not in st.session_state:
 if "allegati_dkv_list" not in st.session_state:
     st.session_state.allegati_dkv_list = []
 
+default_mese = f"{MESI_ANNO[date.today().month - 1]} {date.today().year}"
+if "mese_nota_spese" not in st.session_state:
+    st.session_state["mese_nota_spese"] = default_mese
+
 if "dati_spese_v2" not in st.session_state or st.session_state.dati_spese_v2 is None:
-    st.session_state.dati_spese_v2 = crea_df_iniziale()
+    st.session_state.dati_spese_v2 = genera_df_mese_completo(st.session_state["mese_nota_spese"])
 else:
     st.session_state.dati_spese_v2 = normalizza_dataframe(st.session_state.dati_spese_v2)
 
 if "dati_telepass" not in st.session_state or st.session_state.dati_telepass is None:
-    st.session_state.dati_telepass = crea_df_telepass_iniziale()
+    st.session_state.dati_telepass = pd.DataFrame([{
+        "Data": date.today(),
+        "Tratta / Descrizione": "Tratta Milano - Bologna",
+        "Importo (€)": 0.0
+    }])
 else:
     if "Data" in st.session_state.dati_telepass.columns:
         st.session_state.dati_telepass["Data"] = st.session_state.dati_telepass["Data"].apply(assicura_formato_data)
@@ -363,16 +394,19 @@ with col_a2:
 
 with col_a3:
     opzioni_mesi_anno = [f"{m} {anno}" for anno in ANNI_DISPONIBILI for m in MESI_ANNO]
-    default_mese_anno = f"{MESI_ANNO[date.today().month - 1]} {date.today().year}"
-    idx_default = opzioni_mesi_anno.index(default_mese_anno) if default_mese_anno in opzioni_mesi_anno else 0
+    idx_default = opzioni_mesi_anno.index(st.session_state["mese_nota_spese"]) if st.session_state["mese_nota_spese"] in opzioni_mesi_anno else 0
     
     mese_selezionato = st.selectbox(
         "📅 MESE DI RIFERIMENTO NOTA SPESE",
         options=opzioni_mesi_anno,
-        index=st.session_state.get("idx_mese_pref", idx_default),
+        index=idx_default,
         key="select_mese_principale"
     )
-    st.session_state["mese_nota_spese"] = mese_selezionato
+    
+    if mese_selezionato != st.session_state["mese_nota_spese"]:
+        st.session_state["mese_nota_spese"] = mese_selezionato
+        st.session_state.dati_spese_v2 = genera_df_mese_completo(mese_selezionato, st.session_state.dati_spese_v2)
+        st.rerun()
 
 with col_a4:
     costo_km_a = st.number_input("Rimborso Km (€)", value=0.25, disabled=True)
@@ -390,31 +424,23 @@ with col_salva2:
         carica_bozza_automatica()
         st.rerun()
 with col_salva3:
-    if st.button("🗑 Svuota Tutto", use_container_width=True):
-        if os.path.exists(PATH_BOZZA_LOCALE):
-            os.remove(PATH_BOZZA_LOCALE)
-        st.session_state.dati_spese_v2 = crea_df_iniziale()
-        st.session_state.dati_telepass = crea_df_telepass_iniziale()
-        st.session_state.allegati_dkv_list = []
-        st.session_state.pop("telepass_file_bytes", None)
-        st.session_state.pop("firma_dip_bytes", None)
-        st.session_state.pop("firma_resp_bytes", None)
-        st.session_state.note_finali_user = ""
+    if st.button("🗑 Svuota Mese Corrente", use_container_width=True):
+        st.session_state.dati_spese_v2 = genera_df_mese_completo(st.session_state["mese_nota_spese"])
+        salva_bozza_automatica()
         st.rerun()
 
 st.divider()
 
 # --- TABELLA VOCI SPESA GIORNALIERE ---
-st.subheader(f"📋 1. Voci Spesa Giornaliere - {st.session_state['mese_nota_spese']}")
+st.subheader(f"📋 1. Voci Spesa Giornaliere - Mese Completo ({st.session_state['mese_nota_spese']})")
 
-# L'editor permette la compilazione di più celle/righe senza ricaricare la pagina ad ogni invio
 spese_modificate = st.data_editor(
     st.session_state.dati_spese_v2,
-    num_rows="dynamic",
+    num_rows="fixed",  # Righe fisse per tutto il mese
     use_container_width=True,
     key="editor_spese_stabile",
     column_config={
-        "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY", default=date.today()),
+        "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY", disabled=True),
         "Comune": st.column_config.TextColumn("Comune / Note"),
         "Coordinatore": st.column_config.SelectboxColumn("Coordinatore di Zona", options=COORDINATORI),
         "Km": st.column_config.NumberColumn("Km Percorsi", min_value=0, step=1, default=0),
@@ -424,7 +450,6 @@ spese_modificate = st.data_editor(
     }
 )
 
-# Aggiornamento fluido del DataFrame nello stato di sessione
 st.session_state.dati_spese_v2 = normalizza_dataframe(spese_modificate)
 
 # --- TOTALI E METRICHE ---
