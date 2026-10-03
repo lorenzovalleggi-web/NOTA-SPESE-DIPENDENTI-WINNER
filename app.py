@@ -45,7 +45,6 @@ def salva_bozza_automatica():
         df_temp = st.session_state.dati_spese_v2.copy()
         if "Data" in df_temp.columns:
             df_temp["Data"] = df_temp["Data"].astype(str)
-        # Rimuoviamo eventuali vecchie colonne B dal JSON di salvataggio
         cols_b = [c for c in df_temp.columns if "B" in c]
         if cols_b:
             df_temp = df_temp.drop(columns=cols_b, errors="ignore")
@@ -79,7 +78,6 @@ def carica_bozza_automatica():
                     df_spese = pd.DataFrame(dati["spese"])
                     if "Data" in df_spese.columns:
                         df_spese["Data"] = pd.to_datetime(df_spese["Data"]).dt.date
-                    # Elimina eventuali colonne B residue
                     cols_b = [c for c in df_spese.columns if "_B" in c or " B" in c]
                     if cols_b:
                         df_spese = df_spese.drop(columns=cols_b, errors="ignore")
@@ -128,7 +126,7 @@ def mostra_scontrino_modal(file_obj, file_name, file_bytes=None, mime_type=None)
         use_container_width=True
     )
 
-# --- INIZIALIZZAZIONE STRUTTURA DATI (SOLO CATEGORIA UNICA / A) ---
+# --- INIZIALIZZAZIONE STRUTTURA DATI ---
 def crea_df_iniziale():
     return pd.DataFrame([{
         "Data": date.today(), 
@@ -223,9 +221,10 @@ with col_salva3:
 
 st.divider()
 
-# --- TABELLA PRINCIPALE VOCI DI SPESA (NO CATEGORIA B) ---
+# --- TABELLA PRINCIPALE VOCI DI SPESA ---
 st.subheader(f"📋 1. Voci Spesa Giornaliere - {st.session_state['mese_nota_spese']}")
 
+# Renderizziamo l'editor partendo dai dati salvati in session_state
 df_edit = st.data_editor(
     st.session_state.dati_spese_v2,
     num_rows="dynamic",
@@ -235,24 +234,24 @@ df_edit = st.data_editor(
         "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
         "Comune": st.column_config.TextColumn("Comune / Note"),
         "Coordinatore": st.column_config.SelectboxColumn("Coordinatore di Zona", options=COORDINATORI),
-        "Km": st.column_config.NumberColumn("Km Percorsi", min_value=0, step=1),
-        "Autostrada (€)": st.column_config.NumberColumn("Autostrade (€)", min_value=0.0, format="%.2f €"),
-        "Vitto (€)": st.column_config.NumberColumn("Vitto (€)", min_value=0.0, format="%.2f €"),
-        "Varie (€)": st.column_config.NumberColumn("Varie (€)", min_value=0.0, format="%.2f €"),
+        "Km": st.column_config.NumberColumn("Km Percorsi", min_value=0, step=1, default=0),
+        "Autostrada (€)": st.column_config.NumberColumn("Autostrade (€)", min_value=0.0, format="%.2f €", default=0.0),
+        "Vitto (€)": st.column_config.NumberColumn("Vitto (€)", min_value=0.0, format="%.2f €", default=0.0),
+        "Varie (€)": st.column_config.NumberColumn("Varie (€)", min_value=0.0, format="%.2f €", default=0.0),
     }
 )
 
-# Sincronizziamo lo stato con le modifiche apportate dall'utente
-st.session_state.dati_spese_v2 = df_edit.copy()
+# Sincronizziamo immediatamente lo stato con i nuovi valori inseriti
+st.session_state.dati_spese_v2 = df_edit
 
-# --- CALCOLO TOTALI IN TEMPO REALE CON FUNZIONE SICURA ---
+# --- CALCOLO E AGGIORNAMENTO TOTALI IN TEMPO REALE ---
 km_totali = calcola_somma_sicura(df_edit, "Km")
 totale_rimborso_km = km_totali * costo_km_a
 autostrada_totale = calcola_somma_sicura(df_edit, "Autostrada (€)")
 vitto_totale = calcola_somma_sicura(df_edit, "Vitto (€)")
 varie_totale = calcola_somma_sicura(df_edit, "Varie (€)")
 
-# Card Riepilogo parziale tabella
+# Card Metric per aggiornamento visivo dinamico istantaneo
 c_tot1, c_tot2, c_tot3, c_tot4 = st.columns(4)
 c_tot1.metric("Totale Km", f"{km_totali:.0f} Km", f"€ {totale_rimborso_km:.2f}")
 c_tot2.metric("Totale Autostrade", f"€ {autostrada_totale:.2f}")
