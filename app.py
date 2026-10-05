@@ -175,61 +175,14 @@ def mostra_anteprima_scontrino(file_obj, file_name, height=130, m_type_override=
         m_type = getattr(file_obj, 'type', 'image/jpeg')
     else:
         st.info(f"📄 Allegato (`{file_name}`)")
-        return
+        This error occurs when a triple-quoted string (`"""` or `'''`) is opened on line 234 but is not properly closed with matching triple quotes before the end of the file or block.
 
-    if str(m_type).startswith("image"):
-        try:
-            img = Image.open(io.BytesIO(b_data))
-            st.image(img, use_container_width=True)
-        except Exception:
-            st.info("🖼️ Immagine Allegata")
-    elif m_type == "application/pdf":
-        try:
-            base64_pdf = base64.b64encode(b_data).decode('utf-8')
-            pdf_display = f''
-            st.markdown(pdf_display, unsafe_allow_html=True)
-        except Exception:
-            st.info("📄 Documento PDF Allegato")
-    else:
-        st.info(f"📄 Allegato (`{file_name}`)")
+Here is how to fix it in `/mount/src/nota-spese-dipendenti-winner/app.py`:
 
-@st.dialog("🔍 Visualizzazione Ingrandita Scontrino")
-def mostra_scontrino_modal(file_obj, file_name, m_type_override=None):
-    st.write(f"### 📄 **{file_name}**")
-    mostra_anteprima_scontrino(file_obj, file_name, height=450, m_type_override=m_type_override)
-    
-    if isinstance(file_obj, bytes):
-        b_data = file_obj
-        m_type = m_type_override or 'application/octet-stream'
-    elif hasattr(file_obj, 'getvalue'):
-        b_data = file_obj.getvalue()
-        m_type = getattr(file_obj, 'type', 'application/octet-stream')
-    else:
-        return
-    
-    st.download_button(
-        label="💾 Scarica File Originale",
-        data=b_data,
-        file_name=file_name,
-        mime=m_type,
-        use_container_width=True
-    )
+### 1. Identify the missing closing quotes
+Look around lines 234–235 in `app.py`. You likely have something like this:
 
-# --- FUNZIONE GENERAZIONE PDF SETTIMANALE ---
-def genera_pdf_settimanale(df_settimana, nome_dip, cognome_dip, d_inizio, d_fine, costo_km=0.25):
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
-    story = []
-    
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, leading=20, textColor=colors.HexColor("#1A365D"))
-    subtitle_style = ParagraphStyle('SubTitleStyle', parent=styles['Normal'], fontSize=10, leading=14, textColor=colors.gray)
-    cell_style = ParagraphStyle('Cell', parent=styles['Normal'], fontSize=8, leading=10)
-    
-    # Intestazione
-    story.append(Paragraph("**WINNER SOCIETÀ COOPERATIVA**", title_style))
-    story.append(Paragraph("REPORT SETTIMANALE NOTA SPESE", ParagraphStyle('Sub', parent=title_style, fontSize=12, textColor=colors.HexColor("#2B6CB0"))))
-    story.append(Spacer(1, 10))
-    
-    info_text = f"""
-    **Dipendente:** {nome_dip} {cognome_dip}
+```python
+# ❌ INCORRECT: Missing closing triple quotes
+info_text = f"""
+Questo è un testo informativo per la
