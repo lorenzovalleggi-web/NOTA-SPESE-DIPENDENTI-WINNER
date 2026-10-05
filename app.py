@@ -209,7 +209,6 @@ def salva_stato_completo():
             "telepass": st.session_state.dati_telepass.to_dict(orient="records") if st.session_state.get("dati_telepass") is not None else [],
             "note": st.session_state.get("note_finali_user", "")
         }
-        # Converti le date in stringa per la serializzazione JSON
         for row in data_to_save["spese"]:
             row["Data"] = str(row["Data"])
         for row in data_to_save["telepass"]:
@@ -236,6 +235,8 @@ def carica_stato_completo():
                 
             if "telepass" in dati and dati["telepass"]:
                 df_tel = pd.DataFrame(dati["telepass"])
+                if "Tratta / Descrizione" in df_tel.columns:
+                    df_tel = df_tel.drop(columns=["Tratta / Descrizione"])
                 df_tel["Data"] = df_tel["Data"].apply(assicura_formato_data)
                 st.session_state.dati_telepass = df_tel
                 
@@ -258,15 +259,42 @@ if "dati_spese_v2" not in st.session_state or st.session_state.dati_spese_v2 is 
 else:
     st.session_state.dati_spese_v2 = normalizza_dataframe(st.session_state.dati_spese_v2)
 
+# Inizializzazione Telepass (senza colonna Tratta)
 if "dati_telepass" not in st.session_state or st.session_state.dati_telepass is None:
     st.session_state.dati_telepass = pd.DataFrame([{
         "Data": date.today(),
-        "Tratta / Descrizione": "Tratta Milano - Bologna",
         "Importo (€)": 0.0
     }])
 else:
+    if "Tratta / Descrizione" in st.session_state.dati_telepass.columns:
+        st.session_state.dati_telepass = st.session_state.dati_telepass.drop(columns=["Tratta / Descrizione"])
     if "Data" in st.session_state.dati_telepass.columns:
         st.session_state.dati_telepass["Data"] = st.session_state.dati_telepass["Data"].apply(assicura_formato_data)
+
+# Callback per la memorizzazione istantanea degli importi Telepass
+def aggiorna_telepass():
+    if "editor_telepass_stabile" in st.session_state:
+        edited_data = st.session_state["editor_telepass_stabile"]
+        df_temp = st.session_state.dati_telepass.copy()
+        
+        # Gestione righe modificate
+        for row_idx, changes in edited_data.get("edited_rows", {}).items():
+            for k, v in changes.items():
+                df_temp.iloc[row_idx, df_temp.columns.get_loc(k)] = v
+                
+        # Gestione righe aggiunte
+        for new_row in edited_data.get("added_rows", []):
+            df_temp = pd.concat([df_temp, pd.DataFrame([new_row])], ignore_index=True)
+            
+        # Gestione righe me eliminate
+        deleted_indices = edited_data.get("deleted_rows", [])
+        if deleted_indices:
+            df_temp = df_temp.drop(index=deleted_indices).reset_index(drop=True)
+            
+        if "Data" in df_temp.columns:
+            df_temp["Data"] = df_temp["Data"].apply(assicura_formato_data)
+            
+        st.session_state.dati_telepass = df_temp
 
 # --- HEADER LOGO ---
 col_logo, col_intestazione = st.columns([1, 3])
@@ -434,20 +462,17 @@ with col_tele2:
     with st.container(border=True):
         st.markdown("#### 💳 Spese Mensili Telepass")
         
-        telepass_modificato = st.data_editor(
+        st.data_editor(
             st.session_state.dati_telepass,
             num_rows="dynamic",
             use_container_width=True,
             key="editor_telepass_stabile",
+            on_change=aggiorna_telepass,
             column_config={
                 "Data": st.column_config.DateColumn("Data Spesa", format="DD/MM/YYYY", default=date.today()),
-                "Tratta / Descrizione": st.column_config.TextColumn("Tratta / Descrizione Spesa"),
                 "Importo (€)": st.column_config.NumberColumn("Importo (€)", min_value=0.0, format="%.2f €", default=0.0)
             }
         )
-        if "Data" in telepass_modificato.columns:
-            telepass_modificato["Data"] = telepass_modificato["Data"].apply(assicura_formato_data)
-        st.session_state.dati_telepass = telepass_modificato
         
         totale_telepass = calcola_somma_sicura(st.session_state.dati_telepass, "Importo (€)")
         st.metric("🔴 TOTALE SPESE TELEPASS", f"€ {totale_telepass:.2f}")
