@@ -145,13 +145,20 @@ def calcola_somma_sicura(df, nome_colonna):
 def elimina_scontrino(index_to_remove):
     if 0 <= index_to_remove < len(st.session_state.allegati_dkv_list):
         st.session_state.allegati_dkv_list.pop(index_to_remove)
-        # Forza il reset del file_uploader per evitare il ricaricamento
         st.session_state.uploader_key_counter += 1
 
 def elimina_telepass():
     st.session_state.pop("telepass_file_bytes", None)
     st.session_state.pop("telepass_file_type", None)
     st.session_state.pop("telepass_file_name", None)
+
+def elimina_firma_dip():
+    st.session_state.pop("firma_dip_bytes", None)
+    st.session_state.pop("firma_dip_type", None)
+
+def elimina_firma_resp():
+    st.session_state.pop("firma_resp_bytes", None)
+    st.session_state.pop("firma_resp_type", None)
 
 def mostra_anteprima_scontrino(file_obj, file_name, height=130, m_type_override=None):
     if isinstance(file_obj, bytes):
@@ -169,7 +176,7 @@ def mostra_anteprima_scontrino(file_obj, file_name, height=130, m_type_override=
             img = Image.open(io.BytesIO(b_data))
             st.image(img, use_container_width=True)
         except Exception:
-            st.info("🖼️ Immagine Scontrino")
+            st.info("🖼️ Immagine Allegata")
     elif m_type == "application/pdf":
         try:
             base64_pdf = base64.b64encode(b_data).decode('utf-8')
@@ -204,7 +211,7 @@ def mostra_scontrino_modal(file_obj, file_name, m_type_override=None):
 
 # --- FUNZIONALITÀ SALVATAGGIO PERMANENTE BOZZA ---
 def salva_stato_completo():
-    """Salva su disco locale tutti i dati correnti, compresi gli scontrini in Base64."""
+    """Salva su disco locale tutti i dati correnti, compresi scontrini e firme in Base64."""
     try:
         allegati_salvabili = []
         for item in st.session_state.get("allegati_dkv_list", []):
@@ -217,6 +224,14 @@ def salva_stato_completo():
         if st.session_state.get("telepass_file_bytes"):
             telepass_bytes_b64 = base64.b64encode(st.session_state["telepass_file_bytes"]).decode('utf-8')
 
+        firma_dip_bytes_b64 = None
+        if st.session_state.get("firma_dip_bytes"):
+            firma_dip_bytes_b64 = base64.b64encode(st.session_state["firma_dip_bytes"]).decode('utf-8')
+
+        firma_resp_bytes_b64 = None
+        if st.session_state.get("firma_resp_bytes"):
+            firma_resp_bytes_b64 = base64.b64encode(st.session_state["firma_resp_bytes"]).decode('utf-8')
+
         data_to_save = {
             "nome": st.session_state.get("nome_user", "LORENZO"),
             "cognome": st.session_state.get("cognome_user", "VALLEGGI"),
@@ -227,6 +242,14 @@ def salva_stato_completo():
                 "bytes": telepass_bytes_b64,
                 "type": st.session_state.get("telepass_file_type"),
                 "name": st.session_state.get("telepass_file_name")
+            },
+            "firma_dip": {
+                "bytes": firma_dip_bytes_b64,
+                "type": st.session_state.get("firma_dip_type")
+            },
+            "firma_resp": {
+                "bytes": firma_resp_bytes_b64,
+                "type": st.session_state.get("firma_resp_type")
             },
             "allegati_dkv": allegati_salvabili,
             "note": st.session_state.get("note_finali_user", "")
@@ -244,7 +267,7 @@ def salva_stato_completo():
         return False
 
 def carica_stato_completo():
-    """Carica i dati e ripristina anche gli scontrini convertendo da Base64."""
+    """Carica i dati e ripristina scontrini e firme convertendole da Base64."""
     if os.path.exists(FILE_SALVATAGGIO):
         try:
             with open(FILE_SALVATAGGIO, "r", encoding="utf-8") as f:
@@ -277,6 +300,16 @@ def carica_stato_completo():
                 st.session_state["telepass_file_type"] = tf.get("type")
                 st.session_state["telepass_file_name"] = tf.get("name")
 
+            if "firma_dip" in dati and dati["firma_dip"] and dati["firma_dip"].get("bytes"):
+                fd = dati["firma_dip"]
+                st.session_state["firma_dip_bytes"] = base64.b64decode(fd["bytes"].encode('utf-8'))
+                st.session_state["firma_dip_type"] = fd.get("type")
+
+            if "firma_resp" in dati and dati["firma_resp"] and dati["firma_resp"].get("bytes"):
+                fr = dati["firma_resp"]
+                st.session_state["firma_resp_bytes"] = base64.b64decode(fr["bytes"].encode('utf-8'))
+                st.session_state["firma_resp_type"] = fr.get("type")
+
             if "nome" in dati:
                 st.session_state["nome_user"] = dati["nome"]
             if "cognome" in dati:
@@ -290,7 +323,7 @@ def carica_stato_completo():
             st.error(f"Errore nel caricamento della bozza: {e}")
     return False
 
-# Inizializzazione automatico all'avvio
+# Inizializzazione automatica all'avvio
 if not st.session_state["primo_avvio"]:
     carica_stato_completo()
     st.session_state["primo_avvio"] = True
@@ -393,11 +426,11 @@ col_salva1, col_salva2, col_salva3 = st.columns([2, 2, 2])
 with col_salva1:
     if st.button("💾 SALVA BOZZA (Permanente)", type="primary", use_container_width=True):
         if salva_stato_completo():
-            st.success("✅ Dati e Scontrini salvati con successo!")
+            st.success("✅ Dati, Scontrini e Firme salvati con successo!")
 with col_salva2:
     if st.button("🔄 CARICA ULTIMA BOZZA SALVATA", use_container_width=True):
         if carica_stato_completo():
-            st.success("✅ Bozza e Scontrini ripristinati correttamente!")
+            st.success("✅ Bozza, Scontrini e Firme ripristinati correttamente!")
             st.rerun()
 with col_salva3:
     if st.button("🗑 Svuota Mese Corrente", use_container_width=True):
@@ -498,7 +531,6 @@ with col_tele2:
     with st.container(border=True):
         st.markdown("#### 💳 Spese Mensili Telepass")
         
-        # Tabella Telepass
         st.data_editor(
             st.session_state.dati_telepass,
             num_rows="dynamic",
@@ -513,7 +545,6 @@ with col_tele2:
         
         st.divider()
         
-        # Modulo rapido per Aggiungere / Modificare
         st.markdown("##### ✏️ Modifica o Aggiungi Riga Spesa")
         
         col_m1, col_m2, col_m3 = st.columns([2, 2, 3])
@@ -535,7 +566,6 @@ with col_tele2:
                 st.success("Riga aggiunta con successo!")
                 st.rerun()
 
-        # Gestione/Pulizia Righe
         col_btn_t1, col_btn_t2 = st.columns(2)
         with col_btn_t1:
             if st.button("🧹 Rimuovi Righe Vuote / a Zero", use_container_width=True):
@@ -635,7 +665,6 @@ with st.container(border=True):
     with col_up3:
         data_scontrino_sel = st.date_input("Data Scontrino", value=date.today(), key="data_scontrino_uploader")
 
-    # Uploader con chiave dinamica per resettarlo quando si cancella uno scontrino
     uploader_key = f"nuovi_scontrini_uploader_{st.session_state.uploader_key_counter}"
     
     nuovi_file = st.file_uploader(
@@ -668,7 +697,7 @@ with st.container(border=True):
         if file_aggiunti:
             st.rerun()
 
-# --- ELENCO SCONTRINI IN ELENCO ORDINATO ---
+# --- ELENCO SCONTRINI ---
 if st.session_state.allegati_dkv_list:
     st.markdown(f"### 📋 Elenco Scontrini / Ricevute per {st.session_state['mese_nota_spese']}")
     
@@ -715,7 +744,7 @@ st.metric(f"TOTALE COMPLESSIVO SPESE DA RIMBORSARE ({st.session_state['mese_nota
 
 st.divider()
 
-# --- FIRME E APPROVAZIONE ---
+# --- FIRME E APPROVAZIONE CON PERSISTENZA ---
 st.subheader("✍️ Firma Dipendente e Approvazione Aziendale")
 
 col_firma_dip, col_firma_az = st.columns(2)
@@ -731,9 +760,16 @@ with col_firma_dip:
         )
         
         if file_firma is not None:
-            st.session_state["firma_dip_bytes"] = file_firma.getvalue()
-            st.session_state["firma_dip_type"] = file_firma.type
-            st.success("✅ Firma caricata e salvata!")
+            if file_firma.type.startswith("image"):
+                bytes_f, type_f = ridimensiona_immagine(file_firma)
+            else:
+                bytes_f = file_firma.getvalue()
+                type_f = file_firma.type
+
+            st.session_state["firma_dip_bytes"] = bytes_f
+            st.session_state["firma_dip_type"] = type_f
+            salva_stato_completo()
+            st.success("✅ Firma salvata in bozza!")
 
         if st.session_state.get("firma_dip_bytes"):
             mostra_anteprima_scontrino(
@@ -742,6 +778,7 @@ with col_firma_dip:
                 height=100,
                 m_type_override=st.session_state.get("firma_dip_type")
             )
+            st.button("🗑 Elimina Firma Dipendente", key="del_firma_dip", on_click=elimina_firma_dip, use_container_width=True)
             
         st.date_input("Data Firma Dipendente", value=date.today(), key="data_firma_dip_input")
 
@@ -762,9 +799,16 @@ with col_firma_az:
         )
         
         if file_firma_resp is not None:
-            st.session_state["firma_resp_bytes"] = file_firma_resp.getvalue()
-            st.session_state["firma_resp_type"] = file_firma_resp.type
-            st.success("✅ Firma Responsabile caricata e salvata!")
+            if file_firma_resp.type.startswith("image"):
+                bytes_fr, type_fr = ridimensiona_immagine(file_firma_resp)
+            else:
+                bytes_fr = file_firma_resp.getvalue()
+                type_fr = file_firma_resp.type
+
+            st.session_state["firma_resp_bytes"] = bytes_fr
+            st.session_state["firma_resp_type"] = type_fr
+            salva_stato_completo()
+            st.success("✅ Firma Responsabile salvata in bozza!")
 
         if st.session_state.get("firma_resp_bytes"):
             mostra_anteprima_scontrino(
@@ -773,6 +817,7 @@ with col_firma_az:
                 height=100,
                 m_type_override=st.session_state.get("firma_resp_type")
             )
+            st.button("🗑 Elimina Firma Resp.", key="del_firma_resp", on_click=elimina_firma_resp, use_container_width=True)
             
         st.date_input("Data Approvazione", value=date.today(), key="data_approvazione_input")
 
