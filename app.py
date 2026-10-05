@@ -143,6 +143,11 @@ def elimina_scontrino(index_to_remove):
     if 0 <= index_to_remove < len(st.session_state.allegati_dkv_list):
         st.session_state.allegati_dkv_list.pop(index_to_remove)
 
+def elimina_telepass():
+    st.session_state.pop("telepass_file_bytes", None)
+    st.session_state.pop("telepass_file_type", None)
+    st.session_state.pop("telepass_file_name", None)
+
 def mostra_anteprima_scontrino(file_obj, file_name, height=130, m_type_override=None):
     if isinstance(file_obj, bytes):
         b_data = file_obj
@@ -194,6 +199,8 @@ def mostra_scontrino_modal(file_obj, file_name, m_type_override=None):
 
 if "dati_spese_v2" not in st.session_state or st.session_state.dati_spese_v2 is None:
     st.session_state.dati_spese_v2 = genera_df_mese_completo(st.session_state["mese_nota_spese"])
+else:
+    st.session_state.dati_spese_v2 = normalizza_dataframe(st.session_state.dati_spese_v2)
 
 if "dati_telepass" not in st.session_state or st.session_state.dati_telepass is None:
     st.session_state.dati_telepass = pd.DataFrame([{
@@ -201,114 +208,40 @@ if "dati_telepass" not in st.session_state or st.session_state.dati_telepass is 
         "Tratta / Descrizione": "Tratta Milano - Bologna",
         "Importo (€)": 0.0
     }])
+else:
+    if "Data" in st.session_state.dati_telepass.columns:
+        st.session_state.dati_telepass["Data"] = st.session_state.dati_telepass["Data"].apply(assicura_formato_data)
 
-# --- INTERFACCIA ---
-st.title("📄 NOTA SPESE MENSILE DIPENDENTI")
-st.markdown("**WINNER SOCIETÀ COOPERATIVA**")
+# --- HEADER LOGO ---
+col_logo, col_intestazione = st.columns([1, 3])
+
+with col_logo:
+    for logo_name in ["logo.jpg", "logo.png", "logo.jpeg"]:
+        if os.path.exists(logo_name):
+            try:
+                img = Image.open(logo_name)
+                st.image(img, width=220)
+                break
+            except Exception:
+                pass
+
+with col_intestazione:
+    st.title("📄 NOTA SPESE MENSILE DIPENDENTI")
+    st.markdown("""
+    **WINNER SOCIETÀ COOPERATIVA**  
+    *Sede Legale / Operativa:* Civitavecchia (RM) | *Tel:* 0766 505 197
+    """)
 
 st.divider()
 
 # --- ANAGRAFICA ---
 st.subheader("👤 Anagrafica e Periodo di Riferimento")
-col_a1, col_a2, col_a3 = st.columns([3, 3, 3])
+
+col_a1, col_a2, col_a3, col_a4 = st.columns([2, 2, 3, 2])
+
 with col_a1:
-    st.text_input("Nome", value=st.session_state.get("nome_user", "LORENZO"), key="nome_input")
+    nome = st.text_input("Nome", value=st.session_state.get("nome_user", "LORENZO"), key="nome_input")
+    st.session_state["nome_user"] = nome
+
 with col_a2:
-    st.text_input("Cognome", value=st.session_state.get("cognome_user", "VALLEGGI"), key="cognome_input")
-with col_a3:
-    opzioni_mesi_anno = [f"{m} {anno}" for anno in ANNI_DISPONIBILI for m in MESI_ANNO]
-    idx_default = opzioni_mesi_anno.index(st.session_state["mese_nota_spese"]) if st.session_state["mese_nota_spese"] in opzioni_mesi_anno else 0
-    mese_selezionato = st.selectbox("📅 MESE DI RIFERIMENTO", options=opzioni_mesi_anno, index=idx_default)
-    if mese_selezionato != st.session_state["mese_nota_spese"]:
-        st.session_state["mese_nota_spese"] = mese_selezionato
-        st.session_state.dati_spese_v2 = genera_df_mese_completo(mese_selezionato, st.session_state.dati_spese_v2)
-        st.rerun()
-
-st.divider()
-
-# --- SEZIONE 4: CARICAMENTO ALLEGATI SCONTRINI ---
-st.subheader(f"🧾 4. Allegati e Scontrini (Autostrada, Vitto, Varie) - {st.session_state['mese_nota_spese']}")
-
-with st.container(border=True):
-    st.markdown("#### ➕ Carica Nuovo Scontrino o Ricevuta Autostradale")
-    
-    # Ripartizione a 3 colonne (senza campo Importo)
-    col_up1, col_up2, col_up3 = st.columns([3, 3, 3])
-    
-    with col_up1:
-        tipo_spesa_sel = st.selectbox("Categoria Spesa", options=["Autostrada", "Vitto", "Varie"], key="tipo_spesa_uploader")
-    with col_up2:
-        st.text_input("Mese di Riferimento", value=st.session_state["mese_nota_spese"], disabled=True)
-    with col_up3:
-        data_scontrino_sel = st.date_input("Data Scontrino", value=date.today(), key="data_scontrino_uploader")
-
-    nuovi_file = st.file_uploader(
-        "📎 Seleziona Foto Scontrino Autostrada / Ricevuta (JPG, PNG, PDF)",
-        type=["jpg", "jpeg", "png", "pdf"],
-        accept_multiple_files=True,
-        key="nuovi_scontrini_uploader"
-    )
-
-    if nuovi_file:
-        file_aggiunti = False
-        for f_item in nuovi_file:
-            if f_item.name not in [x["name"] for x in st.session_state.allegati_dkv_list]:
-                if f_item.type.startswith("image"):
-                    bytes_data, m_type = ridimensiona_immagine(f_item)
-                else:
-                    bytes_data = f_item.getvalue()
-                    m_type = f_item.type
-                    
-                st.session_state.allegati_dkv_list.append({
-                    "name": f_item.name,
-                    "file": bytes_data,
-                    "type": m_type,
-                    "categoria": tipo_spesa_sel,
-                    "data": str(data_scontrino_sel),
-                    "mese_riferimento": st.session_state["mese_nota_spese"]
-                })
-                file_aggiunti = True
-        
-        if file_aggiunti:
-            st.rerun()
-
-# --- ELENCO SCONTRINI ORDINATO A RIGHE (LIST VIEW) ---
-if st.session_state.allegati_dkv_list:
-    st.markdown(f"### 📋 Elenco Scontrini / Ricevute per {st.session_state['mese_nota_spese']}")
-    
-    elementi_mese = [
-        (idx, item) for idx, item in enumerate(st.session_state.allegati_dkv_list)
-        if item.get("mese_riferimento") == st.session_state["mese_nota_spese"]
-    ]
-    
-    if elementi_mese:
-        for real_idx, item in elementi_mese:
-            file_obj = item["file"]
-            file_name = item["name"]
-            m_type = item.get("type", "image/jpeg")
-            cat_curr = item.get("categoria", "Varie")
-            data_curr = item.get("data", str(date.today()))
-            
-            with st.container(border=True):
-                col_img, col_info, col_azioni = st.columns([2, 5, 2])
-                
-                with col_img:
-                    mostra_anteprima_scontrino(file_obj, file_name, height=130, m_type_override=m_type)
-                
-                with col_info:
-                    st.markdown(f"#### 📄 `{file_name}`")
-                    st.markdown(f"🏷️ **Categoria:** `{cat_curr.upper()}`")
-                    st.markdown(f"📅 **Data Scontrino:** `{data_curr}`")
-                
-                with col_azioni:
-                    st.write("")
-                    if st.button("🔍 Ingrandisci", key=f"zoom_lst_{real_idx}_{file_name}", use_container_width=True):
-                        mostra_scontrino_modal(file_obj, file_name, m_type_override=m_type)
-                    
-                    st.button(
-                        "🗑 Elimina",
-                        key=f"del_lst_{real_idx}_{file_name}",
-                        on_click=elimina_scontrino,
-                        args=(real_idx,),
-                        use_container_width=True
-                    )
+    cognome =
