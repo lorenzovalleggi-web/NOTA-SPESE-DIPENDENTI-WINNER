@@ -11,7 +11,7 @@ import io
 # 1. Configurazione della pagina Streamlit
 st.set_page_config(page_title="Nota Spese Mensile - Winner", layout="wide")
 
-PATH_BOZZA_LOCALE = "bozza_automatica.json"
+FILE_SALVATAGGIO = "nota_spese_dati.json"
 
 MESI_ANNO = [
     "Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno",
@@ -197,6 +197,62 @@ def mostra_scontrino_modal(file_obj, file_name, m_type_override=None):
         use_container_width=True
     )
 
+# --- FUNZIONALITÀ SALVATAGGIO PERMANENTE BOZZA ---
+def salva_stato_completo():
+    """Salva su disco locale tutti i dati correnti per non perdere nulla."""
+    try:
+        data_to_save = {
+            "nome": st.session_state.get("nome_user", "LORENZO"),
+            "cognome": st.session_state.get("cognome_user", "VALLEGGI"),
+            "mese": st.session_state.get("mese_nota_spese", default_mese),
+            "spese": st.session_state.dati_spese_v2.to_dict(orient="records") if st.session_state.get("dati_spese_v2") is not None else [],
+            "telepass": st.session_state.dati_telepass.to_dict(orient="records") if st.session_state.get("dati_telepass") is not None else [],
+            "note": st.session_state.get("note_finali_user", "")
+        }
+        # Converti le date in stringa per la serializzazione JSON
+        for row in data_to_save["spese"]:
+            row["Data"] = str(row["Data"])
+        for row in data_to_save["telepass"]:
+            row["Data"] = str(row["Data"])
+
+        with open(FILE_SALVATAGGIO, "w", encoding="utf-8") as f:
+            json.dump(data_to_save, f, ensure_ascii=False, indent=4)
+        return True
+    except Exception as e:
+        st.error(f"Errore durante il salvataggio: {e}")
+        return False
+
+def carica_stato_completo():
+    """Carica i dati salvati su disco."""
+    if os.path.exists(FILE_SALVATAGGIO):
+        try:
+            with open(FILE_SALVATAGGIO, "r", encoding="utf-8") as f:
+                dati = json.load(f)
+                
+            if "spese" in dati and dati["spese"]:
+                df_spese = pd.DataFrame(dati["spese"])
+                df_spese["Data"] = df_spese["Data"].apply(assicura_formato_data)
+                st.session_state.dati_spese_v2 = normalizza_dataframe(df_spese)
+                
+            if "telepass" in dati and dati["telepass"]:
+                df_tel = pd.DataFrame(dati["telepass"])
+                df_tel["Data"] = df_tel["Data"].apply(assicura_formato_data)
+                st.session_state.dati_telepass = df_tel
+                
+            if "nome" in dati:
+                st.session_state["nome_user"] = dati["nome"]
+            if "cognome" in dati:
+                st.session_state["cognome_user"] = dati["cognome"]
+            if "mese" in dati:
+                st.session_state["mese_nota_spese"] = dati["mese"]
+            if "note" in dati:
+                st.session_state["note_finali_user"] = dati["note"]
+            return True
+        except Exception as e:
+            st.error(f"Errore nel caricamento della bozza: {e}")
+    return False
+
+# Inizializzazione dataframe
 if "dati_spese_v2" not in st.session_state or st.session_state.dati_spese_v2 is None:
     st.session_state.dati_spese_v2 = genera_df_mese_completo(st.session_state["mese_nota_spese"])
 else:
@@ -271,11 +327,14 @@ st.info(f"📌 **Nota Spese Mensile in elaborazione per il periodo:** `{st.sessi
 # --- PULSANTI DI CONTROLLO BOZZA ---
 col_salva1, col_salva2, col_salva3 = st.columns([2, 2, 2])
 with col_salva1:
-    if st.button("💾 Salva Bozza Mensile", type="primary", use_container_width=True):
-        st.success(f"Bozza per **{st.session_state['mese_nota_spese']}** salvata correttamente!")
+    if st.button("💾 SALVA BOZZA (Permanente)", type="primary", use_container_width=True):
+        if salva_stato_completo():
+            st.success("✅ Dati salvati con successo su disco locale!")
 with col_salva2:
-    if st.button("🔄 Ripristina Dati Salvati", use_container_width=True):
-        st.rerun()
+    if st.button("🔄 CARICA ULTIMA BOZZA SALVATA", use_container_width=True):
+        if carica_stato_completo():
+            st.success("✅ Bozza ripristinata correttamente!")
+            st.rerun()
 with col_salva3:
     if st.button("🗑 Svuota Mese Corrente", use_container_width=True):
         st.session_state.dati_spese_v2 = genera_df_mese_completo(st.session_state["mese_nota_spese"])
@@ -622,11 +681,62 @@ st.session_state["note_finali_user"] = note_finali
 
 st.divider()
 
-# --- ESPORTAZIONE CSV ---
-st.download_button(
-    label=f"📥 Scarica Nota Spese {st.session_state['mese_nota_spese']} (CSV)",
-    data=st.session_state.dati_spese_v2.to_csv(index=False).encode('utf-8'),
-    file_name=f"Nota_Spese_{cognome}_{st.session_state['mese_nota_spese'].replace(' ', '_')}.csv",
-    mime="text/csv",
-    use_container_width=True
-)
+# --- ESPORTAZIONE SETTIMANALE / MENSILE ---
+st.subheader("📦 ESPORTAZIONE E INVIO NOTA SPESE")
+
+tab_settimanale, tab_mensile = st.tabs(["🗓️ INVIO SETTIMANALE", "📅 INVIO MENSILE FINALE"])
+
+# --- TAB SETTIMANALE ---
+with tab_settimanale:
+    st.markdown("#### 📤 Estrai Spese della Settimana")
+    st.info("Seleziona l'intervallo di date per esportare solo i giorni della settimana corrente da inviare.")
+    
+    col_w1, col_w2 = st.columns(2)
+    with col_w1:
+        data_inizio_sett = st.date_input("Data Inizio Settimana", value=date.today(), key="w_start")
+    with col_w2:
+        data_fine_sett = st.date_input("Data Fine Settimana", value=date.today(), key="w_end")
+        
+    if st.session_state.dati_spese_v2 is not None and not st.session_state.dati_spese_v2.empty:
+        df_spese_curr = st.session_state.dati_spese_v2.copy()
+        
+        # Filtro intervallo
+        df_settimana = df_spese_curr[
+            (df_spese_curr["Data"] >= data_inizio_sett) & 
+            (df_spese_curr["Data"] <= data_fine_sett)
+        ]
+        
+        km_sett = pd.to_numeric(df_settimana["Km"], errors='coerce').fillna(0).sum()
+        auto_sett = pd.to_numeric(df_settimana["Autostrada (€)"], errors='coerce').fillna(0).sum()
+        vitto_sett = pd.to_numeric(df_settimana["Vitto (€)"], errors='coerce').fillna(0).sum()
+        varie_sett = pd.to_numeric(df_settimana["Varie (€)"], errors='coerce').fillna(0).sum()
+        tot_sett = (km_sett * costo_km_a) + auto_sett + vitto_sett + varie_sett
+        
+        st.markdown(f"**Giorni nel periodo:** `{len(df_settimana)}` | **Km:** `{km_sett:.0f}` | **Totale Settimana:** `€ {tot_sett:.2f}`")
+        
+        csv_settimana = df_settimana.to_csv(index=False).encode('utf-8')
+        
+        st.download_button(
+            label=f"📥 Scarica Report Settimanale ({data_inizio_sett.strftime('%d/%m')} - {data_fine_sett.strftime('%d/%m')})",
+            data=csv_settimana,
+            file_name=f"Nota_Spese_Settimanale_{cognome}_{data_inizio_sett}_{data_fine_sett}.csv",
+            mime="text/csv",
+            type="primary",
+            use_container_width=True
+        )
+
+# --- TAB MENSILE FINALE ---
+with tab_mensile:
+    st.markdown("#### 📜 Esportazione Mensile Completa")
+    st.warning("Assicurati di aver salvato la bozza e verificato i dati prima di scaricare la versione finale del mese.")
+    
+    csv_mensile = st.session_state.dati_spese_v2.to_csv(index=False).encode('utf-8')
+    
+    st.download_button(
+        label=f"🏆 Scarica NOTA SPESE COMPLETA MENSILE - {st.session_state['mese_nota_spese']} (CSV)",
+        data=csv_mensile,
+        file_name=f"Nota_Spese_MENSILE_{cognome}_{st.session_state['mese_nota_spese'].replace(' ', '_')}.csv",
+        mime="text/csv",
+        type="primary",
+        use_container_width=True
+    )
