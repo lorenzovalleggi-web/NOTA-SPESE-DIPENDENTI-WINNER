@@ -33,6 +33,9 @@ if "primo_avvio" not in st.session_state:
 if "allegati_dkv_list" not in st.session_state:
     st.session_state.allegati_dkv_list = []
 
+if "uploader_key_counter" not in st.session_state:
+    st.session_state.uploader_key_counter = 0
+
 default_mese = f"{MESI_ANNO[date.today().month - 1]} {date.today().year}"
 if "mese_nota_spese" not in st.session_state:
     st.session_state["mese_nota_spese"] = default_mese
@@ -142,6 +145,8 @@ def calcola_somma_sicura(df, nome_colonna):
 def elimina_scontrino(index_to_remove):
     if 0 <= index_to_remove < len(st.session_state.allegati_dkv_list):
         st.session_state.allegati_dkv_list.pop(index_to_remove)
+        # Forza il reset del file_uploader per evitare il ricaricamento
+        st.session_state.uploader_key_counter += 1
 
 def elimina_telepass():
     st.session_state.pop("telepass_file_bytes", None)
@@ -197,7 +202,7 @@ def mostra_scontrino_modal(file_obj, file_name, m_type_override=None):
         use_container_width=True
     )
 
-# --- FUNZIONALITÀ SALVATAGGIO PERMANENTE BOZZA (INCLUSI SCONTRINI E ALLEGATI) ---
+# --- FUNZIONALITÀ SALVATAGGIO PERMANENTE BOZZA ---
 def salva_stato_completo():
     """Salva su disco locale tutti i dati correnti, compresi gli scontrini in Base64."""
     try:
@@ -208,7 +213,6 @@ def salva_stato_completo():
                 item_copy["file"] = base64.b64encode(item_copy["file"]).decode('utf-8')
             allegati_salvabili.append(item_copy)
 
-        # Gestione allegato file Telepass
         telepass_bytes_b64 = None
         if st.session_state.get("telepass_file_bytes"):
             telepass_bytes_b64 = base64.b64encode(st.session_state["telepass_file_bytes"]).decode('utf-8')
@@ -258,7 +262,6 @@ def carica_stato_completo():
                 df_tel["Data"] = df_tel["Data"].apply(assicura_formato_data)
                 st.session_state.dati_telepass = df_tel
 
-            # Ripristino allegati scontrini
             if "allegati_dkv" in dati and dati["allegati_dkv"]:
                 allegati_ripristinati = []
                 for item in dati["allegati_dkv"]:
@@ -268,7 +271,6 @@ def carica_stato_completo():
                     allegati_ripristinati.append(item_copy)
                 st.session_state.allegati_dkv_list = allegati_ripristinati
 
-            # Ripristino file Telepass allegato
             if "telepass_file" in dati and dati["telepass_file"] and dati["telepass_file"].get("bytes"):
                 tf = dati["telepass_file"]
                 st.session_state["telepass_file_bytes"] = base64.b64decode(tf["bytes"].encode('utf-8'))
@@ -288,7 +290,7 @@ def carica_stato_completo():
             st.error(f"Errore nel caricamento della bozza: {e}")
     return False
 
-# Inizializzazione automatico all'avvio se c'è un file salvato
+# Inizializzazione automatico all'avvio
 if not st.session_state["primo_avvio"]:
     carica_stato_completo()
     st.session_state["primo_avvio"] = True
@@ -633,11 +635,14 @@ with st.container(border=True):
     with col_up3:
         data_scontrino_sel = st.date_input("Data Scontrino", value=date.today(), key="data_scontrino_uploader")
 
+    # Uploader con chiave dinamica per resettarlo quando si cancella uno scontrino
+    uploader_key = f"nuovi_scontrini_uploader_{st.session_state.uploader_key_counter}"
+    
     nuovi_file = st.file_uploader(
         "📎 Seleziona Foto Scontrino Autostrada / Ricevuta (JPG, PNG, PDF)",
         type=["jpg", "jpeg", "png", "pdf"],
         accept_multiple_files=True,
-        key="nuovi_scontrini_uploader"
+        key=uploader_key
     )
 
     if nuovi_file:
@@ -696,13 +701,9 @@ if st.session_state.allegati_dkv_list:
                     if st.button("🔍 Ingrandisci", key=f"zoom_lst_{real_idx}_{file_name}", use_container_width=True):
                         mostra_scontrino_modal(file_obj, file_name, m_type_override=m_type)
                     
-                    st.button(
-                        "🗑 Elimina",
-                        key=f"del_lst_{real_idx}_{file_name}",
-                        on_click=elimina_scontrino,
-                        args=(real_idx,),
-                        use_container_width=True
-                    )
+                    if st.button("🗑 Elimina", key=f"del_lst_{real_idx}_{file_name}", use_container_width=True):
+                        elimina_scontrino(real_idx)
+                        st.rerun()
 
 st.divider()
 
