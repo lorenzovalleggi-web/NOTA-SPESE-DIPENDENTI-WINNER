@@ -197,16 +197,34 @@ def mostra_scontrino_modal(file_obj, file_name, m_type_override=None):
         use_container_width=True
     )
 
-# --- FUNZIONALITÀ SALVATAGGIO PERMANENTE BOZZA ---
+# --- FUNZIONALITÀ SALVATAGGIO PERMANENTE BOZZA (INCLUSI SCONTRINI E ALLEGATI) ---
 def salva_stato_completo():
-    """Salva su disco locale tutti i dati correnti per non perdere nulla."""
+    """Salva su disco locale tutti i dati correnti, compresi gli scontrini in Base64."""
     try:
+        allegati_salvabili = []
+        for item in st.session_state.get("allegati_dkv_list", []):
+            item_copy = item.copy()
+            if isinstance(item_copy.get("file"), bytes):
+                item_copy["file"] = base64.b64encode(item_copy["file"]).decode('utf-8')
+            allegati_salvabili.append(item_copy)
+
+        # Gestione allegato file Telepass
+        telepass_bytes_b64 = None
+        if st.session_state.get("telepass_file_bytes"):
+            telepass_bytes_b64 = base64.b64encode(st.session_state["telepass_file_bytes"]).decode('utf-8')
+
         data_to_save = {
             "nome": st.session_state.get("nome_user", "LORENZO"),
             "cognome": st.session_state.get("cognome_user", "VALLEGGI"),
             "mese": st.session_state.get("mese_nota_spese", default_mese),
             "spese": st.session_state.dati_spese_v2.to_dict(orient="records") if st.session_state.get("dati_spese_v2") is not None else [],
             "telepass": st.session_state.dati_telepass.to_dict(orient="records") if st.session_state.get("dati_telepass") is not None else [],
+            "telepass_file": {
+                "bytes": telepass_bytes_b64,
+                "type": st.session_state.get("telepass_file_type"),
+                "name": st.session_state.get("telepass_file_name")
+            },
+            "allegati_dkv": allegati_salvabili,
             "note": st.session_state.get("note_finali_user", "")
         }
         for row in data_to_save["spese"]:
@@ -222,7 +240,7 @@ def salva_stato_completo():
         return False
 
 def carica_stato_completo():
-    """Carica i dati salvati su disco."""
+    """Carica i dati e ripristina anche gli scontrini convertendo da Base64."""
     if os.path.exists(FILE_SALVATAGGIO):
         try:
             with open(FILE_SALVATAGGIO, "r", encoding="utf-8") as f:
@@ -239,7 +257,24 @@ def carica_stato_completo():
                     df_tel = df_tel.drop(columns=["Tratta / Descrizione"])
                 df_tel["Data"] = df_tel["Data"].apply(assicura_formato_data)
                 st.session_state.dati_telepass = df_tel
-                
+
+            # Ripristino allegati scontrini
+            if "allegati_dkv" in dati and dati["allegati_dkv"]:
+                allegati_ripristinati = []
+                for item in dati["allegati_dkv"]:
+                    item_copy = item.copy()
+                    if isinstance(item_copy.get("file"), str):
+                        item_copy["file"] = base64.b64decode(item_copy["file"].encode('utf-8'))
+                    allegati_ripristinati.append(item_copy)
+                st.session_state.allegati_dkv_list = allegati_ripristinati
+
+            # Ripristino file Telepass allegato
+            if "telepass_file" in dati and dati["telepass_file"] and dati["telepass_file"].get("bytes"):
+                tf = dati["telepass_file"]
+                st.session_state["telepass_file_bytes"] = base64.b64decode(tf["bytes"].encode('utf-8'))
+                st.session_state["telepass_file_type"] = tf.get("type")
+                st.session_state["telepass_file_name"] = tf.get("name")
+
             if "nome" in dati:
                 st.session_state["nome_user"] = dati["nome"]
             if "cognome" in dati:
@@ -252,6 +287,11 @@ def carica_stato_completo():
         except Exception as e:
             st.error(f"Errore nel caricamento della bozza: {e}")
     return False
+
+# Inizializzazione automatico all'avvio se c'è un file salvato
+if not st.session_state["primo_avvio"]:
+    carica_stato_completo()
+    st.session_state["primo_avvio"] = True
 
 # Inizializzazione dataframe spese
 if "dati_spese_v2" not in st.session_state or st.session_state.dati_spese_v2 is None:
@@ -268,22 +308,19 @@ else:
     if "Data" in st.session_state.dati_telepass.columns:
         st.session_state.dati_telepass["Data"] = st.session_state.dati_telepass["Data"].apply(assicura_formato_data)
 
-# Callback per la memorizzazione istantanea degli importi Telepass
+# Callback per memorizzazione istantanea Telepass
 def aggiorna_telepass():
     if "editor_telepass_stabile" in st.session_state:
         edited_data = st.session_state["editor_telepass_stabile"]
         df_temp = st.session_state.dati_telepass.copy()
         
-        # Gestione righe modificate
         for row_idx, changes in edited_data.get("edited_rows", {}).items():
             for k, v in changes.items():
                 df_temp.iloc[row_idx, df_temp.columns.get_loc(k)] = v
                 
-        # Gestione righe aggiunte
         for new_row in edited_data.get("added_rows", []):
             df_temp = pd.concat([df_temp, pd.DataFrame([new_row])], ignore_index=True)
             
-        # Gestione righe eliminate
         deleted_indices = edited_data.get("deleted_rows", [])
         if deleted_indices:
             df_temp = df_temp.drop(index=deleted_indices).reset_index(drop=True)
@@ -354,11 +391,11 @@ col_salva1, col_salva2, col_salva3 = st.columns([2, 2, 2])
 with col_salva1:
     if st.button("💾 SALVA BOZZA (Permanente)", type="primary", use_container_width=True):
         if salva_stato_completo():
-            st.success("✅ Dati salvati con successo su disco locale!")
+            st.success("✅ Dati e Scontrini salvati con successo!")
 with col_salva2:
     if st.button("🔄 CARICA ULTIMA BOZZA SALVATA", use_container_width=True):
         if carica_stato_completo():
-            st.success("✅ Bozza ripristinata correttamente!")
+            st.success("✅ Bozza e Scontrini ripristinati correttamente!")
             st.rerun()
 with col_salva3:
     if st.button("🗑 Svuota Mese Corrente", use_container_width=True):
@@ -626,7 +663,7 @@ with st.container(border=True):
         if file_aggiunti:
             st.rerun()
 
-# --- ELENCO SCONTRINI IN ELENCO ORDINATO (LIST VIEW) ---
+# --- ELENCO SCONTRINI IN ELENCO ORDINATO ---
 if st.session_state.allegati_dkv_list:
     st.markdown(f"### 📋 Elenco Scontrini / Ricevute per {st.session_state['mese_nota_spese']}")
     
@@ -748,7 +785,6 @@ st.subheader("📦 ESPORTAZIONE E INVIO NOTA SPESE")
 
 tab_settimanale, tab_mensile = st.tabs(["🗓️ INVIO SETTIMANALE", "📅 INVIO MENSILE FINALE"])
 
-# --- TAB SETTIMANALE ---
 with tab_settimanale:
     st.markdown("#### 📤 Estrai Spese della Settimana")
     st.info("Seleziona l'intervallo di date per esportare solo i giorni della settimana corrente da inviare.")
@@ -762,7 +798,6 @@ with tab_settimanale:
     if st.session_state.dati_spese_v2 is not None and not st.session_state.dati_spese_v2.empty:
         df_spese_curr = st.session_state.dati_spese_v2.copy()
         
-        # Filtro intervallo
         df_settimana = df_spese_curr[
             (df_spese_curr["Data"] >= data_inizio_sett) & 
             (df_spese_curr["Data"] <= data_fine_sett)
@@ -787,7 +822,6 @@ with tab_settimanale:
             use_container_width=True
         )
 
-# --- TAB MENSILE FINALE ---
 with tab_mensile:
     st.markdown("#### 📜 Esportazione Mensile Completa")
     st.warning("Assicurati di aver salvato la bozza e verificato i dati prima di scaricare la versione finale del mese.")
