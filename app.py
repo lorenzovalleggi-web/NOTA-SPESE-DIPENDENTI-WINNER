@@ -253,18 +253,15 @@ def carica_stato_completo():
             st.error(f"Errore nel caricamento della bozza: {e}")
     return False
 
-# Inizializzazione dataframe
+# Inizializzazione dataframe spese
 if "dati_spese_v2" not in st.session_state or st.session_state.dati_spese_v2 is None:
     st.session_state.dati_spese_v2 = genera_df_mese_completo(st.session_state["mese_nota_spese"])
 else:
     st.session_state.dati_spese_v2 = normalizza_dataframe(st.session_state.dati_spese_v2)
 
-# Inizializzazione Telepass (senza colonna Tratta)
+# Inizializzazione Telepass
 if "dati_telepass" not in st.session_state or st.session_state.dati_telepass is None:
-    st.session_state.dati_telepass = pd.DataFrame([{
-        "Data": date.today(),
-        "Importo (€)": 0.0
-    }])
+    st.session_state.dati_telepass = pd.DataFrame(columns=["Data", "Importo (€)"])
 else:
     if "Tratta / Descrizione" in st.session_state.dati_telepass.columns:
         st.session_state.dati_telepass = st.session_state.dati_telepass.drop(columns=["Tratta / Descrizione"])
@@ -286,7 +283,7 @@ def aggiorna_telepass():
         for new_row in edited_data.get("added_rows", []):
             df_temp = pd.concat([df_temp, pd.DataFrame([new_row])], ignore_index=True)
             
-        # Gestione righe me eliminate
+        # Gestione righe eliminate
         deleted_indices = edited_data.get("deleted_rows", [])
         if deleted_indices:
             df_temp = df_temp.drop(index=deleted_indices).reset_index(drop=True)
@@ -462,6 +459,7 @@ with col_tele2:
     with st.container(border=True):
         st.markdown("#### 💳 Spese Mensili Telepass")
         
+        # Tabella Telepass
         st.data_editor(
             st.session_state.dati_telepass,
             num_rows="dynamic",
@@ -474,6 +472,45 @@ with col_tele2:
             }
         )
         
+        st.divider()
+        
+        # Modulo rapido per Aggiungere / Modificare
+        st.markdown("##### ✏️ Modifica o Aggiungi Riga Spesa")
+        
+        col_m1, col_m2, col_m3 = st.columns([2, 2, 3])
+        
+        with col_m1:
+            data_telepass_nuova = st.date_input("Data Spesa", value=date.today(), key="in_data_telepass")
+        with col_m2:
+            importo_telepass_nuovo = st.number_input("Importo (€)", min_value=0.0, step=0.50, format="%.2f", key="in_imp_telepass")
+            
+        with col_m3:
+            st.write("")
+            st.write("")
+            if st.button("➕ Aggiungi Voce Telepass", type="primary", use_container_width=True):
+                nuova_riga = pd.DataFrame([{
+                    "Data": data_telepass_nuova,
+                    "Importo (€)": importo_telepass_nuovo
+                }])
+                st.session_state.dati_telepass = pd.concat([st.session_state.dati_telepass, nuova_riga], ignore_index=True)
+                st.success("Riga aggiunta con successo!")
+                st.rerun()
+
+        # Gestione/Pulizia Righe
+        col_btn_t1, col_btn_t2 = st.columns(2)
+        with col_btn_t1:
+            if st.button("🧹 Rimuovi Righe Vuote / a Zero", use_container_width=True):
+                df_temp = st.session_state.dati_telepass.copy()
+                df_temp["Importo (€)"] = pd.to_numeric(df_temp["Importo (€)"], errors='coerce').fillna(0)
+                st.session_state.dati_telepass = df_temp[df_temp["Importo (€)"] > 0].reset_index(drop=True)
+                st.rerun()
+                
+        with col_btn_t2:
+            if st.button("🗑️ Elimina Ultima Riga", use_container_width=True):
+                if not st.session_state.dati_telepass.empty:
+                    st.session_state.dati_telepass = st.session_state.dati_telepass.iloc[:-1].reset_index(drop=True)
+                    st.rerun()
+
         totale_telepass = calcola_somma_sicura(st.session_state.dati_telepass, "Importo (€)")
         st.metric("🔴 TOTALE SPESE TELEPASS", f"€ {totale_telepass:.2f}")
 
